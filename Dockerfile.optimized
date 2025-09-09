@@ -5,14 +5,16 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV DISPLAY=:99
 
-# Install system dependencies including git and Playwright dependencies
+# Install system dependencies including git, Playwright dependencies, and Xvfb
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     ca-certificates \
     procps \
     git \
+    xvfb \
     libglib2.0-0t64 \
     libnspr4 \
     libnss3 \
@@ -60,5 +62,17 @@ USER monitor
 HEALTHCHECK --interval=300s --timeout=30s --start-period=60s --retries=3 \
     CMD python3 -c "import sqlite3; conn = sqlite3.connect('simple_multi_monitor.db'); conn.close()" || exit 1
 
-# Run the optimized monitor
-CMD ["python3", "simple_multi_monitor_optimized.py"]
+# Create startup script that runs Xvfb and then the monitor
+RUN echo '#!/bin/bash\n\
+# Start Xvfb (virtual display) in the background\n\
+Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &\n\
+\n\
+# Wait a moment for Xvfb to start\n\
+sleep 2\n\
+\n\
+# Run the optimized monitor\n\
+python3 simple_multi_monitor_optimized.py' > /app/start.sh && \
+chmod +x /app/start.sh
+
+# Run the startup script
+CMD ["/app/start.sh"]
