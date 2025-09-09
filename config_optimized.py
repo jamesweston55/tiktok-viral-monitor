@@ -18,14 +18,14 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "2021266274")
 # =============================================================================
 # MONITORING INTERVALS (in seconds)
 # =============================================================================
-MONITORING_INTERVAL = 90 * 60  # 90 minutes
+MONITORING_INTERVAL = 5 * 60  # 5 minutes (changed from 90 minutes for testing)
 SCRAPE_DELAY_SECONDS = 10      # Increased from 5 to 10 for better stability
 BATCH_DELAY_SECONDS = 60       # Increased from 30 to 60 for better stability
 
 # =============================================================================
 # VIRAL DETECTION SETTINGS
 # =============================================================================
-VIRAL_THRESHOLD = 100  # 1000 views
+VIRAL_THRESHOLD = 1  # 1 view (changed from 100 for testing)
 MAX_VIDEOS_TO_CHECK = 5                # Number of latest videos to monitor per account
 
 # =============================================================================
