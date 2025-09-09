@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   tiktok-monitor-optimized:
     build:
@@ -22,11 +20,15 @@ services:
     env_file:
       - .env
     
-    # Volume mounts - fix database permissions
+    # Volume mounts with proper permissions
     volumes:
       - ./accounts.csv:/app/accounts.csv:ro
-      - ./data:/app/data
-      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ./data:/app/data:rw
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    
+    # Give container access to create display
+    tmpfs:
+      - /tmp:exec,size=100M
     
     # Enable droplet mode
     environment:
