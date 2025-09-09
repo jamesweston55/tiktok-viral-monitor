@@ -22,11 +22,10 @@ services:
     env_file:
       - .env
     
-    # Volume mounts
+    # Volume mounts - fix database permissions
     volumes:
       - ./accounts.csv:/app/accounts.csv:ro
-      - ./simple_multi_monitor.db:/app/simple_multi_monitor.db
-      - ./simple_multi_monitor.log:/app/simple_multi_monitor.log
+      - ./data:/app/data
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
     
     # Enable droplet mode
@@ -39,7 +38,7 @@ services:
     
     # Health check
     healthcheck:
-      test: ["CMD", "python3", "-c", "import sqlite3; conn = sqlite3.connect('simple_multi_monitor.db'); conn.close()"]
+      test: ["CMD", "python3", "-c", "import sqlite3; conn = sqlite3.connect('/app/data/simple_multi_monitor.db'); conn.close()"]
       interval: 300s
       timeout: 30s
       retries: 3
