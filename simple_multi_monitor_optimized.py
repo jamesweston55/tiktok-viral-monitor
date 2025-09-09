@@ -333,40 +333,59 @@ def load_accounts():
 
 async def scrape_account(username, scrape_count=0):
     """Scrape a single account with memory management."""
+    thread_id = threading.current_thread().ident
+    task_id = id(asyncio.current_task())
+    
+    logging.info(f"🔍 [THREAD-{thread_id}] [TASK-{task_id}] Starting scrape for @{username}")
+    
     try:
         # Clean up browsers periodically
         if scrape_count % BROWSER_CLEANUP_INTERVAL == 0:
+            logging.info(f"🧹 [THREAD-{thread_id}] Cleaning up browsers for @{username}")
             browser_manager.cleanup_idle_browsers()
             browser_manager.force_garbage_collection()
         
         # Check memory usage
         memory_usage = browser_manager.get_memory_usage()
+        logging.info(f"💾 [THREAD-{thread_id}] Memory before @{username}: {memory_usage:.1f}MB")
+        
         if memory_usage > 800:  # If using more than 800MB
-            logging.warning(f"⚠️  High memory usage: {memory_usage:.1f}MB")
+            logging.warning(f"⚠️  [THREAD-{thread_id}] High memory usage: {memory_usage:.1f}MB")
             browser_manager.force_garbage_collection()
         
-        logging.info(f"🔍 Scraping @{username}...")
+        logging.info(f"🔍 [THREAD-{thread_id}] Scraping @{username}...")
         
         # Get latest videos
+        logging.info(f"📺 [THREAD-{thread_id}] Getting videos for @{username}...")
         videos = await get_latest_videos(username, limit=MAX_VIDEOS_TO_CHECK)
+        logging.info(f"📺 [THREAD-{thread_id}] Got {len(videos) if videos else 0} videos for @{username}")
         
         if not videos:
-            logging.warning(f"⚠️  No videos found for @{username}")
+            logging.warning(f"⚠️  [THREAD-{thread_id}] No videos found for @{username}")
             return
         
         # Save current data
+        logging.info(f"💾 [THREAD-{thread_id}] Saving video data for @{username}...")
         save_video_data(username, videos)
+        logging.info(f"💾 [THREAD-{thread_id}] Saved video data for @{username}")
         
         # Get previous data for comparison
+        logging.info(f"📊 [THREAD-{thread_id}] Getting previous data for @{username}...")
         previous_videos = get_previous_video_data(username, limit=MAX_VIDEOS_TO_CHECK)
+        logging.info(f"📊 [THREAD-{thread_id}] Got {len(previous_videos) if previous_videos else 0} previous videos for @{username}")
         
         # Check for viral videos
+        logging.info(f"🦠 [THREAD-{thread_id}] Checking viral videos for @{username}...")
         viral_videos = check_viral_videos(username, videos, previous_videos)
+        logging.info(f"🦠 [THREAD-{thread_id}] Found {len(viral_videos)} viral videos for @{username}")
         
         if viral_videos:
+            logging.info(f"📱 [THREAD-{thread_id}] Sending viral alert for @{username}...")
             send_viral_alert(username, viral_videos)
+            logging.info(f"📱 [THREAD-{thread_id}] Sent viral alert for @{username}")
         
         # Update monitoring stats
+        logging.info(f"📈 [THREAD-{thread_id}] Updating stats for @{username}...")
         conn = sqlite3.connect(DATABASE_FILE, timeout=30.0)
         try:
             conn.execute('''
@@ -375,60 +394,102 @@ async def scrape_account(username, scrape_count=0):
                 VALUES (?, CURRENT_TIMESTAMP, ?)
             ''', (username, len(videos)))
             conn.commit()
+            logging.info(f"📈 [THREAD-{thread_id}] Updated stats for @{username}")
         finally:
             conn.close()
         
-        logging.info(f"✅ Completed @{username}: {len(videos)} videos, {len(viral_videos)} viral")
+        memory_after = browser_manager.get_memory_usage()
+        logging.info(f"✅ [THREAD-{thread_id}] [TASK-{task_id}] Completed @{username}: {len(videos)} videos, {len(viral_videos)} viral. Memory: {memory_after:.1f}MB")
         
     except Exception as e:
-        logging.error(f"❌ Error scraping @{username}: {e}")
+        logging.error(f"❌ [THREAD-{thread_id}] [TASK-{task_id}] Error scraping @{username}: {e}")
         logging.error(traceback.format_exc())
 
 async def run_monitoring_cycle():
     """Run one complete monitoring cycle with optimized resource management."""
+    logging.info("🚀 [CYCLE] Starting run_monitoring_cycle...")
+    
     accounts = load_accounts()
     if not accounts:
-        logging.error("❌ No accounts to monitor!")
+        logging.error("❌ [CYCLE] No accounts to monitor!")
         return
     
-    logging.info(f"🚀 Starting monitoring cycle for {len(accounts)} accounts")
-    logging.info(f"💾 Memory usage: {browser_manager.get_memory_usage():.1f}MB")
+    logging.info(f"📋 [CYCLE] Loaded {len(accounts)} accounts from accounts.csv")
+    logging.info(f"🚀 [CYCLE] Starting monitoring cycle for {len(accounts)} accounts")
+    logging.info(f"💾 [CYCLE] Memory usage: {browser_manager.get_memory_usage():.1f}MB")
     
     # Process accounts in smaller batches to manage memory
     batch_size = MAX_CONCURRENT_SCRAPES
     total_batches = (len(accounts) + batch_size - 1) // batch_size
+    
+    logging.info(f"📦 [CYCLE] Will process {total_batches} batches with batch_size={batch_size}")
     
     for batch_num in range(total_batches):
         start_idx = batch_num * batch_size
         end_idx = min(start_idx + batch_size, len(accounts))
         batch_accounts = accounts[start_idx:end_idx]
         
-        logging.info(f"📦 Processing batch {batch_num + 1}/{total_batches}: {len(batch_accounts)} accounts")
+        logging.info(f"📦 [BATCH-{batch_num + 1}] Processing batch {batch_num + 1}/{total_batches}: {len(batch_accounts)} accounts")
+        logging.info(f"📦 [BATCH-{batch_num + 1}] Accounts: {', '.join(batch_accounts)}")
+        
+        # Clean up before batch
+        logging.info(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection before batch...")
+        browser_manager.force_garbage_collection()
+        memory_before_batch = browser_manager.get_memory_usage()
+        logging.info(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection completed. Memory: {memory_before_batch:.1f}MB")
         
         # Create tasks for this batch
+        logging.info(f"⚙️  [BATCH-{batch_num + 1}] Creating async tasks...")
         tasks = []
         for i, username in enumerate(batch_accounts):
+            logging.info(f"⚙️  [BATCH-{batch_num + 1}] Creating task {i+1}/{len(batch_accounts)} for @{username}")
             task = asyncio.create_task(scrape_account(username, start_idx + i))
             tasks.append(task)
+            logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created task for @{username}: {id(task)}")
+        
+        logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created {len(tasks)} tasks, starting execution...")
         
         # Wait for batch to complete
         try:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            logging.info(f"⏳ [BATCH-{batch_num + 1}] Starting asyncio.gather for {len(tasks)} tasks...")
+            batch_start_time = time.time()
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            batch_duration = time.time() - batch_start_time
+            logging.info(f"✅ [BATCH-{batch_num + 1}] asyncio.gather completed in {batch_duration:.1f} seconds")
+            logging.info(f"✅ [BATCH-{batch_num + 1}] Results: {len(results)} results received")
+            
+            # Log any exceptions
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logging.error(f"❌ [BATCH-{batch_num + 1}] Task {i+1} failed: {result}")
+                else:
+                    logging.info(f"✅ [BATCH-{batch_num + 1}] Task {i+1} completed successfully")
+                    
         except Exception as e:
-            logging.error(f"❌ Error in batch {batch_num + 1}: {e}")
+            logging.error(f"❌ [BATCH-{batch_num + 1}] Error in batch {batch_num + 1}: {e}")
+            logging.error(f"❌ [BATCH-{batch_num + 1}] Exception details: {traceback.format_exc()}")
         
         # Clean up between batches
+        logging.info(f"🧹 [BATCH-{batch_num + 1}] Cleaning up after batch...")
         browser_manager.cleanup_idle_browsers()
+        memory_after_batch = browser_manager.get_memory_usage()
+        logging.info(f"🧹 [BATCH-{batch_num + 1}] Cleanup completed. Memory: {memory_after_batch:.1f}MB")
         
         # Wait between batches (except for the last one)
         if batch_num < total_batches - 1:
-            logging.info(f"⏳ Waiting {BATCH_DELAY_SECONDS} seconds before next batch...")
+            logging.info(f"⏳ [BATCH-{batch_num + 1}] Waiting {BATCH_DELAY_SECONDS} seconds before next batch...")
             await asyncio.sleep(BATCH_DELAY_SECONDS)
+            logging.info(f"⏳ [BATCH-{batch_num + 1}] Wait completed, proceeding to next batch...")
+        else:
+            logging.info(f"🏁 [BATCH-{batch_num + 1}] This was the final batch")
     
     # Final cleanup
+    logging.info("🧹 [CYCLE] Final cleanup starting...")
     browser_manager.force_garbage_collection()
     final_memory = browser_manager.get_memory_usage()
-    logging.info(f"✅ Monitoring cycle completed. Final memory: {final_memory:.1f}MB")
+    logging.info(f"✅ [CYCLE] Monitoring cycle completed. Final memory: {final_memory:.1f}MB")
 
 # =============================================================================
 # MAIN MONITORING LOOP
