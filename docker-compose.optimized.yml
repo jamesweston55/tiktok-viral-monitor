@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  tiktok-monitor-optimized:
+    build:
+      context: .
+      dockerfile: Dockerfile.optimized
+    container_name: tiktok-monitor-optimized
+    restart: unless-stopped
+    
+    # Memory and CPU limits for 1GB droplet
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+          cpus: '0.8'
+        reservations:
+          memory: 400M
+          cpus: '0.4'
+    
+    # Environment variables
+    env_file:
+      - .env
+    
+    # Volume mounts
+    volumes:
+      - ./accounts.csv:/app/accounts.csv:ro
+      - ./simple_multi_monitor.db:/app/simple_multi_monitor.db
+      - ./simple_multi_monitor.log:/app/simple_multi_monitor.log
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    
+    # Enable droplet mode
+    environment:
+      - DROPLET_MODE=true
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sqlite3; conn = sqlite3.connect('simple_multi_monitor.db'); conn.close()"]
+      interval: 300s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

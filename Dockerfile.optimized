@@ -1,0 +1,46 @@
+# Optimized Dockerfile for TikTok Viral Monitor
+FROM python:3.11-slim
+
+# Set environment variables for optimization
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    ca-certificates \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browsers (Chromium only for memory efficiency)
+RUN playwright install chromium
+
+# Create non-root user for security
+RUN useradd -m -u 1000 monitor && \
+    mkdir -p /app && \
+    chown -R monitor:monitor /app
+
+# Copy application code
+COPY . /app/
+WORKDIR /app
+
+# Set memory limits and optimizations
+ENV NODE_OPTIONS="--max-old-space-size=512"
+ENV BROWSER_MEMORY_LIMIT="256MB"
+ENV MAX_BROWSER_INSTANCES="2"
+
+# Switch to non-root user
+USER monitor
+
+# Health check
+HEALTHCHECK --interval=300s --timeout=30s --start-period=60s --retries=3 \
+    CMD python3 -c "import sqlite3; conn = sqlite3.connect('simple_multi_monitor.db'); conn.close()" || exit 1
+
+# Run the optimized monitor
+CMD ["python3", "simple_multi_monitor_optimized.py"]
