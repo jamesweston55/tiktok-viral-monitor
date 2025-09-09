@@ -42,18 +42,20 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
 
 # Create non-root user for security
-RUN useradd -m -u 1000 monitor && \
-    mkdir -p /app && \
-    mkdir -p /app/data && \
-    chown -R monitor:monitor /app
+RUN useradd -m -u 1000 monitor
+
+# Create app and data directories with proper ownership
+RUN mkdir -p /app /app/data && \
+    chown -R monitor:monitor /app && \
+    chmod -R 755 /app
 
 # Copy application code
 COPY . /app/
 WORKDIR /app
 
-# Create startup script (before switching to monitor user)
+# Create startup script and set permissions
 COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh && chown monitor:monitor /app/start.sh
+RUN chown monitor:monitor /app/start.sh && chmod +x /app/start.sh
 
 # Set memory limits and optimizations
 ENV NODE_OPTIONS="--max-old-space-size=512"
