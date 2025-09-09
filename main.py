@@ -60,6 +60,7 @@ PROXY_PASSWORD = "your_proxy_password"
 # SadCaptcha API configuration (REPLACE WITH YOUR API KEY)
 # You need to get an API key from https://www.sadcaptcha.com/
 SADCAPTCHA_API_KEY = os.getenv("SADCAPTCHA_API_KEY", "a5afce8d13f3b809256269cb5d71d46a")  # Can be set via environment variable
+BROWSER_HEADLESS = True  # Always headless in production
 
 # User-Agent rotation
 USER_AGENTS = [
@@ -280,7 +281,7 @@ async def get_latest_videos(username: str, limit: int = 5) -> list:
         
         # Launch browser with anti-detection settings
         browser = await playwright.chromium.launch(
-            headless=False,  # Keep visible for debugging
+            headless=BROWSER_HEADLESS,  # Use config setting
             # Proxy configuration (commented out - uncomment and configure if needed)
             # proxy={
             #     "server": f"http://{PROXY_HOST}:{PROXY_PORT}",
