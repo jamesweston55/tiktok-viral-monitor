@@ -32,6 +32,10 @@ services:
     # Enable droplet mode
     environment:
       - DROPLET_MODE=true
+      - DISPLAY=:99
+    
+    # Use the startup script that includes Xvfb
+    command: ["/app/start.sh"]
     
     # Health check
     healthcheck:
