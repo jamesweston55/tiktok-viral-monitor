@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  tiktok-monitor:
+    build: .
+    container_name: tiktok-viral-monitor
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - SADCAPTCHA_API_KEY=${SADCAPTCHA_API_KEY}
+    volumes:
+      - ./data:/app/data
+      - ./accounts.csv:/app/accounts.csv
+      - ./logs:/app/logs
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8080/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # Optional: Database service
+  postgres:
+    image: postgres:15-alpine
+    container_name: tiktok-monitor-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=tiktok_monitor
+      - POSTGRES_USER=monitor
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Optional: Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: tiktok-monitor-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Optional: Web dashboard
+  dashboard:
+    build: .
+    container_name: tiktok-monitor-dashboard
+    restart: unless-stopped
+    command: ["python3", "web_dashboard.py"]
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://monitor:${DB_PASSWORD}@postgres:5432/tiktok_monitor
+      - REDIS_URL=redis://redis:6379
+
+volumes:
+  postgres_data:
+  redis_data:

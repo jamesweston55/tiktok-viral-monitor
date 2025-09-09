@@ -41,7 +41,7 @@ import sys
 import traceback
 from datetime import datetime
 
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright, PlaywrightTimeoutError
 
 # Try to import SadCaptcha, but make it optional
 try:
@@ -59,7 +59,7 @@ PROXY_PASSWORD = "your_proxy_password"
 
 # SadCaptcha API configuration (REPLACE WITH YOUR API KEY)
 # You need to get an API key from https://www.sadcaptcha.com/
-SADCAPTCHA_API_KEY = os.getenv("SADCAPTCHA_API_KEY", "a5afce8d13f3b809256269cb5d71d46a")  # Can be set via environment variable
+SADCAPTCHA_API_KEY = os.getenv("SADCAPTCHA_API_KEY", "your_sadcaptcha_api_key_here")  # Can be set via environment variable
 
 # User-Agent rotation
 USER_AGENTS = [
