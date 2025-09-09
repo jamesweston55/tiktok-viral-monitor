@@ -50,6 +50,10 @@ RUN useradd -m -u 1000 monitor && \
 COPY . /app/
 WORKDIR /app
 
+# Create startup script (before switching to monitor user)
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh && chown monitor:monitor /app/start.sh
+
 # Set memory limits and optimizations
 ENV NODE_OPTIONS="--max-old-space-size=512"
 ENV BROWSER_MEMORY_LIMIT="256MB"
@@ -61,18 +65,6 @@ USER monitor
 # Health check
 HEALTHCHECK --interval=300s --timeout=30s --start-period=60s --retries=3 \
     CMD python3 -c "import sqlite3; conn = sqlite3.connect('simple_multi_monitor.db'); conn.close()" || exit 1
-
-# Create startup script that runs Xvfb and then the monitor
-RUN echo '#!/bin/bash\n\
-# Start Xvfb (virtual display) in the background\n\
-Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &\n\
-\n\
-# Wait a moment for Xvfb to start\n\
-sleep 2\n\
-\n\
-# Run the optimized monitor\n\
-python3 simple_multi_monitor_optimized.py' > /app/start.sh && \
-chmod +x /app/start.sh
 
 # Run the startup script
 CMD ["/app/start.sh"]
