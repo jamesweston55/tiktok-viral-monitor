@@ -436,14 +436,21 @@ async def run_monitoring_cycle():
 
 async def main():
     """Main monitoring loop with resource management."""
-    # Setup logging
+    # Setup logging with error handling
+    log_handlers = [logging.StreamHandler(sys.stdout)]
+    
+    # Only add file handler if log file is not a directory
+    if not os.path.isdir(LOG_FILE):
+        try:
+            log_handlers.append(logging.FileHandler(LOG_FILE))
+        except Exception as e:
+            print(f"Warning: Could not create log file {LOG_FILE}: {e}")
+            print("Logging to console only.")
+    
     logging.basicConfig(
         level=getattr(logging, LOG_LEVEL),
         format=LOG_FORMAT,
-        handlers=[
-            logging.FileHandler(LOG_FILE),
-            logging.StreamHandler(sys.stdout)
-        ]
+        handlers=log_handlers
     )
     
     # Initialize database
