@@ -407,89 +407,130 @@ async def scrape_account(username, scrape_count=0):
 
 async def run_monitoring_cycle():
     """Run one complete monitoring cycle with optimized resource management."""
+    print("🚀 [CYCLE] ===== ENTERING run_monitoring_cycle() =====")
     logging.info("🚀 [CYCLE] Starting run_monitoring_cycle...")
     
-    accounts = load_accounts()
-    if not accounts:
-        logging.error("❌ [CYCLE] No accounts to monitor!")
-        return
-    
-    logging.info(f"📋 [CYCLE] Loaded {len(accounts)} accounts from accounts.csv")
-    logging.info(f"🚀 [CYCLE] Starting monitoring cycle for {len(accounts)} accounts")
-    logging.info(f"💾 [CYCLE] Memory usage: {browser_manager.get_memory_usage():.1f}MB")
-    
-    # Process accounts in smaller batches to manage memory
-    batch_size = MAX_CONCURRENT_SCRAPES
-    total_batches = (len(accounts) + batch_size - 1) // batch_size
-    
-    logging.info(f"📦 [CYCLE] Will process {total_batches} batches with batch_size={batch_size}")
-    
-    for batch_num in range(total_batches):
-        start_idx = batch_num * batch_size
-        end_idx = min(start_idx + batch_size, len(accounts))
-        batch_accounts = accounts[start_idx:end_idx]
+    try:
+        print("🚀 [CYCLE] Loading accounts...")
+        accounts = load_accounts()
+        if not accounts:
+            print("❌ [CYCLE] ERROR: No accounts loaded!")
+            logging.error("❌ [CYCLE] No accounts to monitor!")
+            return
         
-        logging.info(f"📦 [BATCH-{batch_num + 1}] Processing batch {batch_num + 1}/{total_batches}: {len(batch_accounts)} accounts")
-        logging.info(f"📦 [BATCH-{batch_num + 1}] Accounts: {', '.join(batch_accounts)}")
+        print(f"📋 [CYCLE] Successfully loaded {len(accounts)} accounts: {accounts}")
+        logging.info(f"📋 [CYCLE] Loaded {len(accounts)} accounts from accounts.csv")
+        logging.info(f"🚀 [CYCLE] Starting monitoring cycle for {len(accounts)} accounts")
+        logging.info(f"💾 [CYCLE] Memory usage: {browser_manager.get_memory_usage():.1f}MB")
         
-        # Clean up before batch
-        logging.info(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection before batch...")
+        # Process accounts in smaller batches to manage memory
+        batch_size = MAX_CONCURRENT_SCRAPES
+        total_batches = (len(accounts) + batch_size - 1) // batch_size
+        
+        print(f"📦 [CYCLE] Configuration: batch_size={batch_size}, total_batches={total_batches}")
+        logging.info(f"📦 [CYCLE] Will process {total_batches} batches with batch_size={batch_size}")
+        
+        for batch_num in range(total_batches):
+            print(f"📦 [CYCLE] ===== STARTING BATCH {batch_num + 1}/{total_batches} =====")
+            
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(accounts))
+            batch_accounts = accounts[start_idx:end_idx]
+            
+            print(f"📦 [BATCH-{batch_num + 1}] Batch range: {start_idx}-{end_idx}")
+            print(f"📦 [BATCH-{batch_num + 1}] Processing batch {batch_num + 1}/{total_batches}: {len(batch_accounts)} accounts")
+            print(f"📦 [BATCH-{batch_num + 1}] Accounts: {', '.join(batch_accounts)}")
+            
+            logging.info(f"📦 [BATCH-{batch_num + 1}] Processing batch {batch_num + 1}/{total_batches}: {len(batch_accounts)} accounts")
+            logging.info(f"📦 [BATCH-{batch_num + 1}] Accounts: {', '.join(batch_accounts)}")
+            
+            # Clean up before batch
+            print(f"🗑️  [BATCH-{batch_num + 1}] Starting garbage collection...")
+            logging.info(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection before batch...")
+            browser_manager.force_garbage_collection()
+            memory_before_batch = browser_manager.get_memory_usage()
+            print(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection completed. Memory: {memory_before_batch:.1f}MB")
+            logging.info(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection completed. Memory: {memory_before_batch:.1f}MB")
+            
+            # Create tasks for this batch
+            print(f"⚙️  [BATCH-{batch_num + 1}] Creating async tasks for {len(batch_accounts)} accounts...")
+            logging.info(f"⚙️  [BATCH-{batch_num + 1}] Creating async tasks...")
+            tasks = []
+            for i, username in enumerate(batch_accounts):
+                print(f"⚙️  [BATCH-{batch_num + 1}] Creating task {i+1}/{len(batch_accounts)} for @{username}")
+                logging.info(f"⚙️  [BATCH-{batch_num + 1}] Creating task {i+1}/{len(batch_accounts)} for @{username}")
+                task = asyncio.create_task(scrape_account(username, start_idx + i))
+                tasks.append(task)
+                print(f"⚙️  [BATCH-{batch_num + 1}] Created task for @{username}: {id(task)}")
+                logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created task for @{username}: {id(task)}")
+            
+            print(f"⚙️  [BATCH-{batch_num + 1}] Created {len(tasks)} tasks, starting execution...")
+            logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created {len(tasks)} tasks, starting execution...")
+            
+            # Wait for batch to complete
+            try:
+                print(f"⏳ [BATCH-{batch_num + 1}] Starting asyncio.gather for {len(tasks)} tasks...")
+                logging.info(f"⏳ [BATCH-{batch_num + 1}] Starting asyncio.gather for {len(tasks)} tasks...")
+                batch_start_time = time.time()
+                
+                print(f"⏳ [BATCH-{batch_num + 1}] About to await asyncio.gather...")
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                print(f"✅ [BATCH-{batch_num + 1}] asyncio.gather returned!")
+                
+                batch_duration = time.time() - batch_start_time
+                print(f"✅ [BATCH-{batch_num + 1}] asyncio.gather completed in {batch_duration:.1f} seconds")
+                print(f"✅ [BATCH-{batch_num + 1}] Results: {len(results)} results received")
+                
+                logging.info(f"✅ [BATCH-{batch_num + 1}] asyncio.gather completed in {batch_duration:.1f} seconds")
+                logging.info(f"✅ [BATCH-{batch_num + 1}] Results: {len(results)} results received")
+                
+                # Log any exceptions
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        print(f"❌ [BATCH-{batch_num + 1}] Task {i+1} failed: {result}")
+                        logging.error(f"❌ [BATCH-{batch_num + 1}] Task {i+1} failed: {result}")
+                    else:
+                        print(f"✅ [BATCH-{batch_num + 1}] Task {i+1} completed successfully")
+                        logging.info(f"✅ [BATCH-{batch_num + 1}] Task {i+1} completed successfully")
+                        
+            except Exception as e:
+                print(f"❌ [BATCH-{batch_num + 1}] EXCEPTION in asyncio.gather: {e}")
+                logging.error(f"❌ [BATCH-{batch_num + 1}] Error in batch {batch_num + 1}: {e}")
+                logging.error(f"❌ [BATCH-{batch_num + 1}] Exception details: {traceback.format_exc()}")
+            
+            # Clean up between batches
+            print(f"🧹 [BATCH-{batch_num + 1}] Cleaning up after batch...")
+            logging.info(f"🧹 [BATCH-{batch_num + 1}] Cleaning up after batch...")
+            browser_manager.cleanup_idle_browsers()
+            memory_after_batch = browser_manager.get_memory_usage()
+            print(f"🧹 [BATCH-{batch_num + 1}] Cleanup completed. Memory: {memory_after_batch:.1f}MB")
+            logging.info(f"🧹 [BATCH-{batch_num + 1}] Cleanup completed. Memory: {memory_after_batch:.1f}MB")
+            
+            # Wait between batches (except for the last one)
+            if batch_num < total_batches - 1:
+                print(f"⏳ [BATCH-{batch_num + 1}] Waiting {BATCH_DELAY_SECONDS} seconds before next batch...")
+                logging.info(f"⏳ [BATCH-{batch_num + 1}] Waiting {BATCH_DELAY_SECONDS} seconds before next batch...")
+                await asyncio.sleep(BATCH_DELAY_SECONDS)
+                print(f"⏳ [BATCH-{batch_num + 1}] Wait completed, proceeding to next batch...")
+                logging.info(f"⏳ [BATCH-{batch_num + 1}] Wait completed, proceeding to next batch...")
+            else:
+                print(f"🏁 [BATCH-{batch_num + 1}] This was the final batch")
+                logging.info(f"🏁 [BATCH-{batch_num + 1}] This was the final batch")
+        
+        # Final cleanup
+        print("🧹 [CYCLE] Starting final cleanup...")
+        logging.info("🧹 [CYCLE] Final cleanup starting...")
         browser_manager.force_garbage_collection()
-        memory_before_batch = browser_manager.get_memory_usage()
-        logging.info(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection completed. Memory: {memory_before_batch:.1f}MB")
+        final_memory = browser_manager.get_memory_usage()
+        print(f"✅ [CYCLE] Monitoring cycle completed successfully! Final memory: {final_memory:.1f}MB")
+        logging.info(f"✅ [CYCLE] Monitoring cycle completed. Final memory: {final_memory:.1f}MB")
         
-        # Create tasks for this batch
-        logging.info(f"⚙️  [BATCH-{batch_num + 1}] Creating async tasks...")
-        tasks = []
-        for i, username in enumerate(batch_accounts):
-            logging.info(f"⚙️  [BATCH-{batch_num + 1}] Creating task {i+1}/{len(batch_accounts)} for @{username}")
-            task = asyncio.create_task(scrape_account(username, start_idx + i))
-            tasks.append(task)
-            logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created task for @{username}: {id(task)}")
-        
-        logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created {len(tasks)} tasks, starting execution...")
-        
-        # Wait for batch to complete
-        try:
-            logging.info(f"⏳ [BATCH-{batch_num + 1}] Starting asyncio.gather for {len(tasks)} tasks...")
-            batch_start_time = time.time()
-            
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            batch_duration = time.time() - batch_start_time
-            logging.info(f"✅ [BATCH-{batch_num + 1}] asyncio.gather completed in {batch_duration:.1f} seconds")
-            logging.info(f"✅ [BATCH-{batch_num + 1}] Results: {len(results)} results received")
-            
-            # Log any exceptions
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    logging.error(f"❌ [BATCH-{batch_num + 1}] Task {i+1} failed: {result}")
-                else:
-                    logging.info(f"✅ [BATCH-{batch_num + 1}] Task {i+1} completed successfully")
-                    
-        except Exception as e:
-            logging.error(f"❌ [BATCH-{batch_num + 1}] Error in batch {batch_num + 1}: {e}")
-            logging.error(f"❌ [BATCH-{batch_num + 1}] Exception details: {traceback.format_exc()}")
-        
-        # Clean up between batches
-        logging.info(f"🧹 [BATCH-{batch_num + 1}] Cleaning up after batch...")
-        browser_manager.cleanup_idle_browsers()
-        memory_after_batch = browser_manager.get_memory_usage()
-        logging.info(f"🧹 [BATCH-{batch_num + 1}] Cleanup completed. Memory: {memory_after_batch:.1f}MB")
-        
-        # Wait between batches (except for the last one)
-        if batch_num < total_batches - 1:
-            logging.info(f"⏳ [BATCH-{batch_num + 1}] Waiting {BATCH_DELAY_SECONDS} seconds before next batch...")
-            await asyncio.sleep(BATCH_DELAY_SECONDS)
-            logging.info(f"⏳ [BATCH-{batch_num + 1}] Wait completed, proceeding to next batch...")
-        else:
-            logging.info(f"🏁 [BATCH-{batch_num + 1}] This was the final batch")
-    
-    # Final cleanup
-    logging.info("🧹 [CYCLE] Final cleanup starting...")
-    browser_manager.force_garbage_collection()
-    final_memory = browser_manager.get_memory_usage()
-    logging.info(f"✅ [CYCLE] Monitoring cycle completed. Final memory: {final_memory:.1f}MB")
+    except Exception as e:
+        print(f"❌ [CYCLE] CRITICAL ERROR in run_monitoring_cycle: {e}")
+        print(f"❌ [CYCLE] Exception traceback: {traceback.format_exc()}")
+        logging.error(f"❌ [CYCLE] CRITICAL ERROR in run_monitoring_cycle: {e}")
+        logging.error(traceback.format_exc())
+        raise  # Re-raise to be caught by main()
 
 # =============================================================================
 # MAIN MONITORING LOOP
@@ -497,6 +538,8 @@ async def run_monitoring_cycle():
 
 async def main():
     """Main monitoring loop with resource management."""
+    print("🚀 MAIN: Starting main() function...")
+    
     # Setup logging with error handling
     log_handlers = [logging.StreamHandler(sys.stdout)]
     
@@ -514,8 +557,12 @@ async def main():
         handlers=log_handlers
     )
     
+    print("🚀 MAIN: Logging configured, initializing database...")
+    
     # Initialize database
     init_database()
+    
+    print("🚀 MAIN: Database initialized, sending startup notification...")
     
     # Send startup notification
     try:
@@ -537,43 +584,76 @@ async def main():
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         data = {'chat_id': TELEGRAM_CHAT_ID, 'text': message}
         requests.post(url, data=data, timeout=10)
+        print("🚀 MAIN: Startup notification sent successfully")
     except Exception as e:
+        print(f"🚀 MAIN: Failed to send startup notification: {e}")
         logging.error(f"❌ Failed to send startup notification: {e}")
     
     logging.info("🚀 TikTok Viral Monitor (OPTIMIZED) started")
     logging.info(f"💾 Initial memory usage: {browser_manager.get_memory_usage():.1f}MB")
+    
+    print("🚀 MAIN: Starting main monitoring loop...")
     
     cycle_count = 0
     
     try:
         while True:
             cycle_count += 1
+            print(f"🔄 MAIN: ====== STARTING CYCLE #{cycle_count} ======")
             logging.info(f"🔄 Starting monitoring cycle #{cycle_count}")
             
             start_time = time.time()
-            await run_monitoring_cycle()
+            
+            print(f"🔄 MAIN: About to call run_monitoring_cycle() for cycle #{cycle_count}")
+            try:
+                await run_monitoring_cycle()
+                print(f"✅ MAIN: run_monitoring_cycle() completed successfully for cycle #{cycle_count}")
+            except Exception as cycle_error:
+                print(f"❌ MAIN: CRITICAL ERROR in run_monitoring_cycle() for cycle #{cycle_count}: {cycle_error}")
+                logging.error(f"❌ CRITICAL ERROR in monitoring cycle #{cycle_count}: {cycle_error}")
+                logging.error(traceback.format_exc())
+                print("🔄 MAIN: Continuing to next cycle despite error...")
+            
             cycle_duration = time.time() - start_time
             
+            print(f"⏱️ MAIN: Cycle #{cycle_count} completed in {cycle_duration:.1f} seconds")
             logging.info(f"⏱️  Cycle #{cycle_count} completed in {cycle_duration:.1f} seconds")
             logging.info(f"💾 Memory usage: {browser_manager.get_memory_usage():.1f}MB")
             
             # Wait for next cycle
             wait_time = MONITORING_INTERVAL - cycle_duration
             if wait_time > 0:
+                print(f"⏳ MAIN: Waiting {wait_time:.0f} seconds until next cycle...")
                 logging.info(f"⏳ Waiting {wait_time:.0f} seconds until next cycle...")
-                await asyncio.sleep(wait_time)
+                
+                # Break the sleep into smaller chunks to detect hangs
+                sleep_chunks = max(1, int(wait_time / 30))  # 30-second chunks
+                chunk_time = wait_time / sleep_chunks
+                
+                for chunk in range(sleep_chunks):
+                    print(f"⏳ MAIN: Sleep chunk {chunk + 1}/{sleep_chunks} ({chunk_time:.0f}s)")
+                    await asyncio.sleep(chunk_time)
+                
+                print(f"⏳ MAIN: Sleep completed, starting cycle #{cycle_count + 1}")
             else:
+                print("⚠️ MAIN: Cycle took longer than monitoring interval!")
                 logging.warning("⚠️  Cycle took longer than monitoring interval!")
                 
     except KeyboardInterrupt:
+        print("👋 MAIN: Keyboard interrupt received")
         logging.info("👋 Simple Multi-Monitor stopped")
     except Exception as e:
+        print(f"❌ MAIN: FATAL ERROR in main loop: {e}")
         logging.error(f"❌ Fatal error: {e}")
         logging.error(traceback.format_exc())
+        print("❌ MAIN: Script will exit due to fatal error")
     finally:
+        print("🧹 MAIN: Running final cleanup...")
         # Final cleanup
         browser_manager.force_garbage_collection()
-        logging.info(f"💾 Final memory usage: {browser_manager.get_memory_usage():.1f}MB")
+        final_memory = browser_manager.get_memory_usage()
+        print(f"💾 MAIN: Final memory usage: {final_memory:.1f}MB")
+        logging.info(f"💾 Final memory usage: {final_memory:.1f}MB")
 
 if __name__ == "__main__":
     asyncio.run(main())
