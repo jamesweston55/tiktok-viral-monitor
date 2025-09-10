@@ -31,9 +31,9 @@ MAX_VIDEOS_TO_CHECK = 5                # Number of latest videos to monitor per 
 # =============================================================================
 # PERFORMANCE SETTINGS - OPTIMIZED FOR MEMORY
 # =============================================================================
-MAX_CONCURRENT_SCRAPES = 3  # Reduced from 10 to 3 for better memory management
+MAX_CONCURRENT_SCRAPES = 1  # Reduced to 1 for maximum stability on droplet
 BROWSER_HEADLESS = True                # Set to False to see browser (for debugging)
-PAGE_TIMEOUT = 30000                   # Page load timeout in milliseconds
+PAGE_TIMEOUT = 45000                   # Increase page timeout to 45s for network variance
 
 # =============================================================================
 # MEMORY MANAGEMENT SETTINGS

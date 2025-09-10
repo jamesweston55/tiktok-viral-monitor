@@ -358,9 +358,20 @@ async def scrape_account(username, scrape_count=0):
         
         logging.info(f"🔍 [THREAD-{thread_id}] Scraping @{username}...")
         
-        # Get latest videos
+        # Get latest videos with timeout
         logging.info(f"📺 [THREAD-{thread_id}] Getting videos for @{username}...")
-        videos = await get_latest_videos(username, limit=MAX_VIDEOS_TO_CHECK)
+        try:
+            videos = await asyncio.wait_for(
+                get_latest_videos(username, limit=MAX_VIDEOS_TO_CHECK),
+                timeout=max(30, PAGE_TIMEOUT / 1000)
+            )
+        except asyncio.TimeoutError:
+            logging.error(f"⏱️  [THREAD-{thread_id}] Timeout while getting videos for @{username}")
+            return
+        except Exception as e:
+            logging.error(f"❌ [THREAD-{thread_id}] Error in get_latest_videos for @{username}: {e}")
+            logging.error(traceback.format_exc())
+            return
         logging.info(f"📺 [THREAD-{thread_id}] Got {len(videos) if videos else 0} videos for @{username}")
         
         if not videos:
@@ -470,14 +481,14 @@ async def run_monitoring_cycle():
             print(f"⚙️  [BATCH-{batch_num + 1}] Created {len(tasks)} tasks, starting execution...")
             logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created {len(tasks)} tasks, starting execution...")
             
-            # Wait for batch to complete
+            # Wait for batch to complete with per-task timeout
             try:
                 print(f"⏳ [BATCH-{batch_num + 1}] Starting asyncio.gather for {len(tasks)} tasks...")
                 logging.info(f"⏳ [BATCH-{batch_num + 1}] Starting asyncio.gather for {len(tasks)} tasks...")
                 batch_start_time = time.time()
                 
                 print(f"⏳ [BATCH-{batch_num + 1}] About to await asyncio.gather...")
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                results = await asyncio.gather(*tasks, return_exceptions=True, timeout=max(30, PAGE_TIMEOUT / 1000))
                 print(f"✅ [BATCH-{batch_num + 1}] asyncio.gather returned!")
                 
                 batch_duration = time.time() - batch_start_time
@@ -496,6 +507,10 @@ async def run_monitoring_cycle():
                         print(f"✅ [BATCH-{batch_num + 1}] Task {i+1} completed successfully")
                         logging.info(f"✅ [BATCH-{batch_num + 1}] Task {i+1} completed successfully")
                         
+            except asyncio.TimeoutError:
+                print(f"❌ [BATCH-{batch_num + 1}] asyncio.gather timed out after {PAGE_TIMEOUT / 1000} seconds.")
+                logging.error(f"❌ [BATCH-{batch_num + 1}] asyncio.gather timed out after {PAGE_TIMEOUT / 1000} seconds.")
+                logging.error(f"❌ [BATCH-{batch_num + 1}] Exception details: {traceback.format_exc()}")
             except Exception as e:
                 print(f"❌ [BATCH-{batch_num + 1}] EXCEPTION in asyncio.gather: {e}")
                 logging.error(f"❌ [BATCH-{batch_num + 1}] Error in batch {batch_num + 1}: {e}")
