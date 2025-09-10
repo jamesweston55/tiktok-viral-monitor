@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Cache bust: 2025-09-10-05:28 - Force Docker rebuild
+# TikTok Viral Monitor - Optimized Version with Emergency Debugging
+# This script monitors TikTok accounts for viral videos and sends Telegram notifications
 """
 TikTok Viral Monitor - OPTIMIZED VERSION
 ========================================
