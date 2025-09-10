@@ -331,6 +331,13 @@ async def get_latest_videos(username: str, limit: int = 5) -> list:
             },
         )
         
+        # Align default timeouts with config
+        try:
+            await context.set_default_navigation_timeout(PAGE_TIMEOUT)
+            await context.set_default_timeout(PAGE_TIMEOUT)
+        except Exception as _:
+            pass
+        
         page = await context.new_page()
         
         # Set up response logging and data capture
@@ -387,7 +394,18 @@ async def get_latest_videos(username: str, limit: int = 5) -> list:
             url = f"https://www.tiktok.com/@{username}"
             logging.info(f"Navigating to: {url}")
             
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            # Retry navigation up to 2 times if timing out
+            nav_attempts = 0
+            while True:
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
+                    break
+                except Exception as nav_err:
+                    nav_attempts += 1
+                    logging.warning(f"page.goto timeout/err for @{username} (attempt {nav_attempts}): {nav_err}")
+                    if nav_attempts >= 2:
+                        raise
+                    await asyncio.sleep(3)
             await asyncio.sleep(3)  # Wait for dynamic content
             
             logging.info("Page loaded successfully. Title: '%s'", await page.title())
