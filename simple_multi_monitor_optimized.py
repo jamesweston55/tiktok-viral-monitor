@@ -488,7 +488,10 @@ async def run_monitoring_cycle():
                 batch_start_time = time.time()
                 
                 print(f"⏳ [BATCH-{batch_num + 1}] About to await asyncio.gather...")
-                results = await asyncio.gather(*tasks, return_exceptions=True, timeout=max(30, PAGE_TIMEOUT / 1000))
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=max(30, PAGE_TIMEOUT / 1000)
+                )
                 print(f"✅ [BATCH-{batch_num + 1}] asyncio.gather returned!")
                 
                 batch_duration = time.time() - batch_start_time
