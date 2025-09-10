@@ -51,6 +51,12 @@ except ImportError:
     SADCAPTCHA_AVAILABLE = False
     logging.warning("SadCaptcha not available. Install with: pip install git+https://github.com/gbiz123/tiktok-captcha-solver.git")
 
+# Try to import PAGE_TIMEOUT from config_optimized with a safe fallback to avoid NameError
+try:
+    from config_optimized import PAGE_TIMEOUT
+except Exception:
+    PAGE_TIMEOUT = 45000  # fallback to 45s if config import fails
+
 # Proxy configuration (REPLACE WITH YOUR PROXY DETAILS)
 PROXY_HOST = "your-proxy-host.com"
 PROXY_PORT = 8080
