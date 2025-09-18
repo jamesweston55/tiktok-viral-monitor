@@ -62,8 +62,8 @@ if DROPLET_MODE:
 # FILE LOCATIONS
 # =============================================================================
 ACCOUNTS_FILE = "accounts.csv"
-DATABASE_FILE = "/app/data/simple_multi_monitor.db"
-LOG_FILE = "/app/data/simple_multi_monitor.log"
+DATABASE_FILE = "./data/simple_multi_monitor.db"
+LOG_FILE = "./data/simple_multi_monitor.log"
 
 # =============================================================================
 # CAPTCHA & ANTI-BOT SETTINGS

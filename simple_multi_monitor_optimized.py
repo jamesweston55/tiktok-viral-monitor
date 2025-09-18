@@ -150,13 +150,13 @@ def save_video_data(username, videos):
         for video in videos:
             video_data.append((
                 username,
-                video.get('video_id', ''),
-                video.get('description', '')[:500],  # Limit description length
+                video.get("id", ""),
+                video.get("desc", "")[:500],  # Limit description length
                 video.get('views', 0),
                 video.get('likes', 0),
                 video.get('comments', 0),
                 video.get('shares', 0),
-                video.get('create_time', ''),
+                video.get("created", ""),
                 datetime.now()
             ))
         
@@ -232,14 +232,14 @@ def check_viral_videos(username, current_videos, previous_videos):
             if view_increase >= VIRAL_THRESHOLD:
                 viral_videos.append({
                     'video_id': video_id,
-                    'description': current_video.get('description', ''),
+                    'description': current_video.get("desc", ""),
                     'current_views': current_views,
                     'previous_views': previous_views,
                     'view_increase': view_increase,
                     'likes': current_video.get('likes', 0),
                     'comments': current_video.get('comments', 0),
                     'shares': current_video.get('shares', 0),
-                    'create_time': current_video.get('create_time', '')
+                    'create_time': current_video.get("created", "")
                 })
                 logging.info(f"🔥 VIRAL DETECTED! @{username} video {video_id}: +{view_increase} views")
     
@@ -560,6 +560,16 @@ async def run_monitoring_cycle():
 async def main():
     """Main monitoring loop with resource management."""
     print("🚀 MAIN: Starting main() function...")
+    
+    # Ensure directories for log and database exist before using them
+    try:
+        log_dir = os.path.dirname(LOG_FILE) or "."
+        db_dir = os.path.dirname(DATABASE_FILE) or "."
+        for dir_path in [log_dir, db_dir]:
+            if dir_path and not os.path.isdir(dir_path):
+                os.makedirs(dir_path, exist_ok=True)
+    except Exception as e:
+        print(f"Warning: Could not create required directories: {e}")
     
     # Setup logging with error handling
     log_handlers = [logging.StreamHandler(sys.stdout)]

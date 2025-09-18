@@ -1,0 +1,26 @@
+# Manual Update Commands for DigitalOcean Droplet
+# Run these commands one by one on your droplet:
+
+# 1. Navigate to the project directory
+cd /root/tiktok-viral-monitor
+
+# 2. Stop the current containers
+docker-compose -f docker-compose.optimized.yml down
+
+# 3. Pull the latest changes from GitHub
+git pull origin main
+
+# 4. Rebuild the optimized container
+docker-compose -f docker-compose.optimized.yml build --no-cache
+
+# 5. Start the updated containers
+docker-compose -f docker-compose.optimized.yml up -d
+
+# 6. Restart resource monitoring
+systemctl restart tiktok-resource-monitor
+
+# 7. Check status
+docker-compose -f docker-compose.optimized.yml ps
+
+# 8. View recent logs
+docker-compose -f docker-compose.optimized.yml logs --tail=20
