@@ -19,6 +19,7 @@ Features:
 import asyncio
 import sqlite3
 import csv
+import json
 import os
 import sys
 import time
@@ -210,15 +211,78 @@ def get_previous_video_data(username, limit=5):
 # VIRAL DETECTION
 # =============================================================================
 
+
+def save_view_deltas(username, current_videos, previous_videos):
+    """Save view deltas to CSV and JSON files."""
+    try:
+        # Create lookup for previous videos
+        prev_lookup = {v['video_id']: v for v in previous_videos}
+        
+        # Ensure data directory exists
+        os.makedirs('data', exist_ok=True)
+        
+        # Prepare delta data
+        deltas = []
+        timestamp = datetime.now().isoformat()
+        
+        for current_video in current_videos:
+            video_id = current_video.get('video_id') or current_video.get('id')
+            if not video_id:
+                continue
+                
+            current_views = current_video.get('views', 0)
+            previous_video = prev_lookup.get(video_id)
+            previous_views = previous_video.get('views', 0) if previous_video else 0
+            delta = current_views - previous_views
+            
+            delta_data = {
+                'timestamp': timestamp,
+                'username': username,
+                'video_id': video_id,
+                'previous_views': previous_views,
+                'current_views': current_views,
+                'delta': delta
+            }
+            deltas.append(delta_data)
+            
+            # Write to JSON file (append)
+            try:
+                with open('data/view_deltas.jsonl', 'a') as f:
+                    json.dump(delta_data, f)
+                    f.write('\n')
+            except Exception as e:
+                logging.error(f"Error writing to JSON: {e}")
+            
+            # Write to CSV file (append)
+            try:
+                file_exists = os.path.exists('data/view_deltas.csv')
+                with open('data/view_deltas.csv', 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    if not file_exists:
+                        writer.writerow(['timestamp', 'username', 'video_id', 'previous_views', 'current_views', 'delta'])
+                    writer.writerow([timestamp, username, video_id, previous_views, current_views, delta])
+            except Exception as e:
+                logging.error(f"Error writing to CSV: {e}")
+        
+        logging.info(f"📊 Saved {len(deltas)} view deltas for @{username}")
+        
+    except Exception as e:
+        logging.error(f"Error saving view deltas for {username}: {e}")
+
+
 def check_viral_videos(username, current_videos, previous_videos):
     """Check for viral videos by comparing current and previous data."""
+    
+    # Save view deltas to files
+    save_view_deltas(username, current_videos, previous_videos)
+    
     viral_videos = []
     
     # Create lookup for previous videos
     prev_lookup = {v['video_id']: v for v in previous_videos}
     
     for current_video in current_videos:
-        video_id = current_video.get('video_id')
+        video_id = current_video.get('video_id') or current_video.get('id')
         if not video_id:
             continue
             
@@ -378,15 +442,15 @@ async def scrape_account(username, scrape_count=0):
             logging.warning(f"⚠️  [THREAD-{thread_id}] No videos found for @{username}")
             return
         
-        # Save current data
-        logging.info(f"💾 [THREAD-{thread_id}] Saving video data for @{username}...")
-        save_video_data(username, videos)
-        logging.info(f"💾 [THREAD-{thread_id}] Saved video data for @{username}")
-        
         # Get previous data for comparison
         logging.info(f"📊 [THREAD-{thread_id}] Getting previous data for @{username}...")
         previous_videos = get_previous_video_data(username, limit=MAX_VIDEOS_TO_CHECK)
         logging.info(f"📊 [THREAD-{thread_id}] Got {len(previous_videos) if previous_videos else 0} previous videos for @{username}")
+        
+        # Save current data
+        logging.info(f"💾 [THREAD-{thread_id}] Saving video data for @{username}...")
+        save_video_data(username, videos)
+        logging.info(f"💾 [THREAD-{thread_id}] Saved video data for @{username}")
         
         # Check for viral videos
         logging.info(f"🦠 [THREAD-{thread_id}] Checking viral videos for @{username}...")
@@ -560,16 +624,6 @@ async def run_monitoring_cycle():
 async def main():
     """Main monitoring loop with resource management."""
     print("🚀 MAIN: Starting main() function...")
-    
-    # Ensure directories for log and database exist before using them
-    try:
-        log_dir = os.path.dirname(LOG_FILE) or "."
-        db_dir = os.path.dirname(DATABASE_FILE) or "."
-        for dir_path in [log_dir, db_dir]:
-            if dir_path and not os.path.isdir(dir_path):
-                os.makedirs(dir_path, exist_ok=True)
-    except Exception as e:
-        print(f"Warning: Could not create required directories: {e}")
     
     # Setup logging with error handling
     log_handlers = [logging.StreamHandler(sys.stdout)]
