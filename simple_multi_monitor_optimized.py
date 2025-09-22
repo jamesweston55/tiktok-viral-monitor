@@ -278,6 +278,11 @@ def save_view_deltas(username, current_videos, previous_videos):
         deltas = []
         timestamp = datetime.now().isoformat()
         
+        # Check if this user has any monitoring history (to avoid fake deltas for new users)
+        is_new_user = len(previous_videos) == 0
+        if is_new_user:
+            logging.info(f"🆕 New user detected: @{username} - initial views will not be counted as gains")
+        
         for current_video in current_videos:
             video_id = current_video.get('video_id') or current_video.get('id')
             if not video_id:
@@ -285,8 +290,23 @@ def save_view_deltas(username, current_videos, previous_videos):
                 
             current_views = current_video.get('views', 0)
             previous_video = prev_lookup.get(video_id)
-            previous_views = previous_video.get('views', 0) if previous_video else 0
-            delta = current_views - previous_views
+            
+            if previous_video:
+                # Existing video - calculate real delta
+                previous_views = previous_video.get('views', 0)
+                delta = current_views - previous_views
+            else:
+                # New video detection
+                if is_new_user:
+                    # For new users, don't count initial views as gains
+                    previous_views = current_views
+                    delta = 0
+                    logging.debug(f"🆕 New user's video {video_id[:10]}... - setting delta to 0 (initial: {current_views} views)")
+                else:
+                    # For existing users, new video is a real gain from 0
+                    previous_views = 0
+                    delta = current_views
+                    logging.info(f"📹 New video detected for existing user @{username}: {video_id[:10]}... (+{delta} views)")
             
             delta_data = {
                 'timestamp': timestamp,
@@ -334,6 +354,12 @@ def check_viral_videos(username, current_videos, previous_videos):
     # Create lookup for previous videos
     prev_lookup = {v['video_id']: v for v in previous_videos}
     
+    # Don't trigger viral alerts for new users (avoid fake massive deltas)
+    is_new_user_viral_check = len(previous_videos) == 0
+    if is_new_user_viral_check:
+        logging.info(f"🆕 Skipping viral detection for new user @{username} (avoiding fake initial deltas)")
+        return viral_videos
+    
     for current_video in current_videos:
         video_id = current_video.get('video_id') or current_video.get('id')
         if not video_id:
@@ -344,9 +370,11 @@ def check_viral_videos(username, current_videos, previous_videos):
         
         if previous_video:
             previous_views = previous_video.get('views', 0)
+            view_increase = current_views - previous_views
         else:
+            # New video for existing user - this is a real gain from 0
             previous_views = 0
-        view_increase = current_views - previous_views
+            view_increase = current_views
         
         if view_increase >= VIRAL_THRESHOLD:
             viral_videos.append({
