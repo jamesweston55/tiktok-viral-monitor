@@ -194,9 +194,14 @@ async def solve_captcha(page, max_retries=3):
     Solve captcha using the updated SadCaptcha implementation.
     Returns True if captcha was solved, False otherwise.
     """
+    logging.info("🔍 Starting captcha check...")
+    
     # First check if there's a captcha present
-    if not await check_for_captcha(page):
-        logging.info("No captcha detected")
+    captcha_present = await check_for_captcha(page)
+    logging.info(f"🔍 Captcha check result: {captcha_present}")
+    
+    if not captcha_present:
+        logging.info("✅ No captcha detected - continuing without solving")
         return True
     
     logging.info("Captcha detected, attempting to solve...")

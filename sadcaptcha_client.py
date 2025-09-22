@@ -43,9 +43,14 @@ async def solve_captcha_with_sadcaptcha(page, api_key: str, max_retries: int = 3
         logging.warning("SadCaptcha API key not configured")
         return False
     
+    # Double-check that captcha is actually present before calling SadCaptcha
+    if not await check_for_captcha(page):
+        logging.info("🛡️ Double-check: No captcha present, skipping SadCaptcha call")
+        return True
+    
     for attempt in range(1, max_retries + 1):
         try:
-            logging.info(f"Attempting to solve captcha with SadCaptcha (attempt {attempt}/{max_retries})")
+            logging.info(f"🔧 Attempting to solve captcha with SadCaptcha (attempt {attempt}/{max_retries})")
             
             # Create solver instance
             solver = AsyncPlaywrightSolver(page, api_key)
@@ -54,27 +59,27 @@ async def solve_captcha_with_sadcaptcha(page, api_key: str, max_retries: int = 3
             result = await solver.solve_captcha_if_present()
             
             if result:
-                logging.info("SadCaptcha successfully solved the captcha")
+                logging.info("✅ SadCaptcha successfully solved the captcha")
                 # Wait a moment for the page to update
                 await asyncio.sleep(2)
                 return True
             else:
-                logging.warning(f"SadCaptcha attempt {attempt} failed")
+                logging.warning(f"⚠️ SadCaptcha attempt {attempt} failed")
                 if attempt < max_retries:
                     await asyncio.sleep(3)  # Wait before retry
                     
         except Exception as e:
-            logging.error(f"Error in SadCaptcha attempt {attempt}: {e}")
+            logging.error(f"❌ Error in SadCaptcha attempt {attempt}: {e}")
             if attempt < max_retries:
                 await asyncio.sleep(3)  # Wait before retry
     
-    logging.error("All SadCaptcha attempts failed")
+    logging.error("❌ All SadCaptcha attempts failed")
     return False
 
 
 async def check_for_captcha(page) -> bool:
     """
-    Check if a captcha is present on the page
+    Check if a captcha is present on the page with robust detection
     
     Args:
         page: Playwright page object
@@ -82,30 +87,39 @@ async def check_for_captcha(page) -> bool:
     Returns:
         True if captcha is detected, False otherwise
     """
-    captcha_selectors = [
+    # More specific selectors that actually indicate a real captcha
+    specific_captcha_selectors = [
         '#captcha-verify-container-main-page',
-        '.secsdk-captcha-drag-icon', 
+        '.secsdk-captcha-drag-icon',
         '#captcha_slide_button',
-        '[data-testid="captcha-container"]',
-        '.captcha-container',
-        '[class*="captcha"]',
-        '[data-cy="captcha"]',
-        '.captcha',
-        'iframe[src*="captcha"]',
-        'iframe[src*="verification"]',
-        '[class*="verification"]',
-        '[id*="verification"]',
-        '.verify-container',
-        '#verify-container'
     ]
     
-    for selector in captcha_selectors:
+    # Check for specific, reliable captcha indicators first
+    for selector in specific_captcha_selectors:
         try:
             element = page.locator(selector).first
-            if await element.is_visible():
-                logging.info(f"Captcha detected with selector: {selector}")
+            if await element.is_visible(timeout=1000):  # Short timeout
+                logging.info(f"🚨 Real captcha detected with selector: {selector}")
                 return True
         except:
             continue
     
+    # Check for captcha-related text content (more reliable)
+    captcha_text_indicators = [
+        "Slide to complete the puzzle",
+        "Please complete the security verification",
+        "Drag the slider to complete the puzzle",
+        "Verification required"
+    ]
+    
+    for text in captcha_text_indicators:
+        try:
+            if await page.get_by_text(text).is_visible(timeout=1000):
+                logging.info(f"🚨 Captcha detected by text: '{text}'")
+                return True
+        except:
+            continue
+    
+    # If we reach here, no reliable captcha indicators found
+    logging.debug("🔍 No reliable captcha indicators found")
     return False
