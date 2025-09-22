@@ -152,9 +152,15 @@ def save_video_data(username, videos):
         # Prepare batch insert data
         video_data = []
         for video in videos:
+            # Get video_id from either 'video_id' or 'id' field
+            video_id = video.get('video_id') or video.get('id', '')
+            if not video_id:
+                logging.warning(f"Skipping video with missing ID for {username}: {video}")
+                continue
+                
             video_data.append((
                 username,
-                video.get("id", ""),
+                str(video_id),  # Ensure it's a string
                 video.get("desc", "")[:500],  # Limit description length
                 video.get('views', 0),
                 video.get('likes', 0),
@@ -377,7 +383,10 @@ def send_viral_alert(username, viral_videos):
             if video['description']:
                 desc = video['description'][:100] + "..." if len(video['description']) > 100 else video['description']
                 message += f"📝 Description: {desc}\n"
-            message += f"⏰ Posted: {video['create_time']}\n\n"
+            create_time = video.get('create_time', 'Unknown')
+            if create_time and create_time != 'Unknown':
+                message += f"⏰ Posted: {create_time}\n"
+            message += "\n"
         
         if len(viral_videos) > 3:
             message += f"... and {len(viral_videos) - 3} more viral videos!\n"

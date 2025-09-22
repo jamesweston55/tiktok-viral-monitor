@@ -512,6 +512,37 @@ async def get_latest_videos(username: str, limit: int = 5) -> list:
             while True:
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
+                    
+                    # Handle "Choose your interests" popup if present
+                    try:
+                        # Try multiple selectors for the Skip button
+                        skip_selectors = [
+                            'button.TUXButton--secondary:has-text("Skip")',
+                            'button.TUXButton.TUXButton--secondary:has(.TUXButton-label:text("Skip"))',
+                            'button[style*="width: 50%"]:has-text("Skip")',
+                            '.TUXButton-label:text("Skip")',
+                        ]
+                        
+                        button_found = False
+                        for selector in skip_selectors:
+                            try:
+                                skip_button = page.locator(selector).first
+                                if await skip_button.is_visible(timeout=2000):
+                                    logging.info(f"Found 'Choose your interests' popup with selector: {selector}")
+                                    await skip_button.click()
+                                    await asyncio.sleep(2)
+                                    logging.info("Successfully skipped interests popup")
+                                    button_found = True
+                                    break
+                            except:
+                                continue
+                        
+                        if not button_found:
+                            logging.debug("No interests popup found")
+                            
+                    except Exception as e:
+                        logging.debug(f"Error handling interests popup: {e}")
+                    
                     # if error banner present, click Refresh (poll up to ~6s)
                     for _ in range(30):
                         hit = await refresh_if_error()
