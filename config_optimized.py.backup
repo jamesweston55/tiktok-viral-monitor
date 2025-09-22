@@ -32,19 +32,8 @@ MAX_VIDEOS_TO_CHECK = 5                # Number of latest videos to monitor per 
 # PERFORMANCE SETTINGS - OPTIMIZED FOR MEMORY
 # =============================================================================
 MAX_CONCURRENT_SCRAPES = 1  # Reduced to 1 for maximum stability on droplet
-BROWSER_HEADLESS = False                # Set to False to see browser (for debugging)
+BROWSER_HEADLESS = True                # Set to False to see browser (for debugging)
 PAGE_TIMEOUT = 45000                   # Increase page timeout to 45s for network variance
-
-# New concurrency and scheduling flags
-MAX_CONCURRENT_BROWSERS = 2            # Max browsers running at once
-MAX_TABS_PER_BROWSER = 1               # Max concurrent tabs (contexts/pages) per browser
-MIN_REVISIT_MINUTES = 15               # Target revisit interval per account
-JITTER_SECONDS_MIN = 10                # Min jitter between account scrapes per tab
-JITTER_SECONDS_MAX = 30                # Max jitter between account scrapes per tab
-
-# SadCaptcha extension integration
-USE_SADCAPTCHA_EXTENSION = True        # Use official SadCaptcha Playwright context
-USER_DATA_DIR_BASE = os.getenv("USER_DATA_DIR_BASE", "./data/userdata")  # per-account profiles
 
 # =============================================================================
 # MEMORY MANAGEMENT SETTINGS
@@ -79,7 +68,7 @@ LOG_FILE = "./data/simple_multi_monitor.log"
 # =============================================================================
 # CAPTCHA & ANTI-BOT SETTINGS
 # =============================================================================
-SADCAPTCHA_API_KEY = os.getenv("SADCAPTCHA_API_KEY") or "a5afce8d13f3b809256269cb5d71d46a"
+SADCAPTCHA_API_KEY = os.getenv("SADCAPTCHA_API_KEY", "a5afce8d13f3b809256269cb5d71d46a")
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",

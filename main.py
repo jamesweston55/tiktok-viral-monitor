@@ -37,25 +37,46 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import traceback
 from datetime import datetime
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from tiktok_captcha_solver import make_async_playwright_solver_context
+from playwright_stealth import stealth_async, StealthConfig
 
-# Try to import SadCaptcha, but make it optional
+# Import the updated SadCaptcha client
 try:
-    from tiktok_captcha_solver import AsyncPlaywrightSolver
-    SADCAPTCHA_AVAILABLE = True
-except ImportError:
+    from sadcaptcha_client import solve_captcha_with_sadcaptcha, check_for_captcha, SADCAPTCHA_AVAILABLE
+    logging.info("Updated SadCaptcha client imported successfully")
+except ImportError as e:
+    logging.error(f"Failed to import SadCaptcha client: {e}")
     SADCAPTCHA_AVAILABLE = False
-    logging.warning("SadCaptcha not available. Install with: pip install git+https://github.com/gbiz123/tiktok-captcha-solver.git")
+    
+    # Fallback functions if import fails
+    async def solve_captcha_with_sadcaptcha(page, api_key, max_retries=3):
+        logging.warning("SadCaptcha not available - captcha solving disabled")
+        return False
+        
+    async def check_for_captcha(page):
+        return False
 
-# Try to import PAGE_TIMEOUT from config_optimized with a safe fallback to avoid NameError
+# Try to import PAGE_TIMEOUT and solver flags from config_optimized with safe fallbacks
 try:
-    from config_optimized import PAGE_TIMEOUT
+    from config_optimized import (
+        PAGE_TIMEOUT,
+        USE_SADCAPTCHA_EXTENSION,
+        USER_DATA_DIR_BASE,
+        SADCAPTCHA_API_KEY,
+        BROWSER_HEADLESS,
+    )
 except Exception:
     PAGE_TIMEOUT = 45000  # fallback to 45s if config import fails
+    USE_SADCAPTCHA_EXTENSION = True
+    USER_DATA_DIR_BASE = "./data/userdata"
+    SADCAPTCHA_API_KEY = os.getenv("SADCAPTCHA_API_KEY", "")
+    BROWSER_HEADLESS = False
 
 # Proxy configuration (REPLACE WITH YOUR PROXY DETAILS)
 PROXY_HOST = "your-proxy-host.com"
@@ -65,8 +86,7 @@ PROXY_PASSWORD = "your_proxy_password"
 
 # SadCaptcha API configuration (REPLACE WITH YOUR API KEY)
 # You need to get an API key from https://www.sadcaptcha.com/
-SADCAPTCHA_API_KEY = os.getenv("SADCAPTCHA_API_KEY", "a5afce8d13f3b809256269cb5d71d46a")  # Can be set via environment variable
-BROWSER_HEADLESS = False  # Keep non-headless to avoid detection
+# SADCAPTCHA_API_KEY and BROWSER_HEADLESS are imported from config_optimized if available
 
 # User-Agent rotation
 USER_AGENTS = [
@@ -171,101 +191,40 @@ async def solve_tiktok_slider_captcha(page):
 
 async def solve_captcha(page, max_retries=3):
     """
-    Solve captcha using SadCaptcha API with manual fallback.
+    Solve captcha using the updated SadCaptcha implementation.
     Returns True if captcha was solved, False otherwise.
     """
-    if not SADCAPTCHA_AVAILABLE:
-        logging.warning("SadCaptcha not available, skipping captcha solving")
-        return False
+    # First check if there's a captcha present
+    if not await check_for_captcha(page):
+        logging.info("No captcha detected")
+        return True
     
-    if SADCAPTCHA_API_KEY == "your_sadcaptcha_api_key_here":
-        logging.warning("SadCaptcha API key not configured. Please set SADCAPTCHA_API_KEY environment variable or update the script.")
-        return False
+    logging.info("Captcha detected, attempting to solve...")
     
-    for attempt in range(1, max_retries + 1):
+    # Use the new SadCaptcha implementation
+    result = await solve_captcha_with_sadcaptcha(page, SADCAPTCHA_API_KEY, max_retries)
+    
+    if result:
+        logging.info("Captcha solved successfully")
+        # Verify captcha is really gone
+        await asyncio.sleep(3)
+        if not await check_for_captcha(page):
+            return True
+        else:
+            logging.warning("Captcha still present after solving")
+            return False
+    else:
+        logging.error("Failed to solve captcha with SadCaptcha")
+        # Try manual fallback for slider captchas if available
         try:
-            logging.info(f"Attempting to solve captcha (try {attempt}/{max_retries})...")
-            
-            # Check for various captcha selectors
-            captcha_selectors = [
-                '#captcha-verify-container-main-page',
-                '.secsdk-captcha-drag-icon',
-                '#captcha_slide_button',
-                '[data-testid="captcha-container"]',
-                '.captcha-container',
-                '[class*="captcha"]'
-            ]
-            
-            captcha_present = False
-            captcha_type = None
-            
-            for selector in captcha_selectors:
-                try:
-                    element = page.locator(selector).first
-                    if await element.is_visible():
-                        captcha_present = True
-                        captcha_type = selector
-                        logging.info(f"Captcha detected with selector: {selector}")
-                        break
-                except:
-                    continue
-            
-            if not captcha_present:
-                logging.info("No captcha detected")
+            manual_result = await solve_tiktok_slider_captcha(page)
+            if manual_result:
+                logging.info("Manual slider captcha solving succeeded")
                 return True
-            
-            logging.info(f"Captcha detected ({captcha_type}), attempting to solve...")
-            
-            # Try SadCaptcha first
-            try:
-                solver = AsyncPlaywrightSolver(page, SADCAPTCHA_API_KEY)
-                result = await solver.solve_captcha_if_present()
-                if result:
-                    logging.info("SadCaptcha solver succeeded")
-                else:
-                    # If SadCaptcha fails and it's a slider type, try manual solving
-                    if captcha_type in ['#captcha-verify-container-main-page', '.secsdk-captcha-drag-icon', '#captcha_slide_button']:
-                        logging.info("SadCaptcha failed, trying manual slider solve...")
-                        result = await solve_tiktok_slider_captcha(page)
-                    else:
-                        logging.warning("SadCaptcha solver failed for non-slider captcha")
-                        
-            except Exception as e:
-                logging.error(f"SadCaptcha solver error: {e}")
-                # Fallback to manual solving for slider captchas
-                if captcha_type in ['#captcha-verify-container-main-page', '.secsdk-captcha-drag-icon', '#captcha_slide_button']:
-                    logging.info("Trying manual slider solve as fallback...")
-                    result = await solve_tiktok_slider_captcha(page)
-                else:
-                    result = False
-            
-            if result:
-                logging.info("Captcha solved successfully.")
-                await asyncio.sleep(5)  # Wait for page to update
-                
-                # Verify captcha is really gone
-                captcha_still_present = False
-                for selector in captcha_selectors:
-                    try:
-                        element = page.locator(selector).first
-                        if await element.is_visible():
-                            captcha_still_present = True
-                            break
-                    except:
-                        continue
-                
-                if not captcha_still_present:
-                    logging.info("Captcha successfully resolved and disappeared.")
-                    return True
-                else:
-                    logging.warning("Captcha still present after solving attempt.")
-            
         except Exception as e:
-            logging.error(f"Captcha solving attempt {attempt} failed: {e}")
-            await asyncio.sleep(2)
-    
-    logging.error(f"Failed to solve captcha after {max_retries} attempts")
-    return False
+            logging.error(f"Manual captcha solving also failed: {e}")
+        
+        return False
 
 async def get_latest_videos(username: str, limit: int = 5) -> list:
     """
@@ -284,67 +243,215 @@ async def get_latest_videos(username: str, limit: int = 5) -> list:
         # Select random user agent
         user_agent = random.choice(USER_AGENTS)
         logging.info(f"Using User-Agent: {user_agent}")
-        
-        # Launch browser with anti-detection settings
-        browser = await playwright.chromium.launch(
-            headless=BROWSER_HEADLESS,  # Use config setting
-            # Proxy configuration (commented out - uncomment and configure if needed)
-            # proxy={
-            #     "server": f"http://{PROXY_HOST}:{PROXY_PORT}",
-            #     "username": PROXY_USERNAME,
-            #     "password": PROXY_PASSWORD,
-            # },
-            args=[
-                "--ignore-certificate-errors",
-                "--ignore-ssl-errors",
-                "--ignore-certificate-errors-spki-list",
-                "--disable-web-security",
-                "--disable-features=VizDisplayCompositor",
-                "--disable-extensions",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--disable-gpu",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-field-trial-config",
-                "--disable-hang-monitor",
-                "--disable-features=TranslateUI",
-                "--disable-ipc-flooding-protection",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-default-apps",
-                "--disable-component-extensions-with-background-pages",
-                "--allow-running-insecure-content",
-            ],
-        )
-        
-        # Create context with additional anti-detection measures
-        context = await browser.new_context(
-            user_agent=user_agent,
-            ignore_https_errors=True,
-            bypass_csp=True,
-            viewport={"width": 1280, "height": 800},
-            extra_http_headers={
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Accept-Encoding": "gzip, deflate",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1",
-            },
-        )
-        
+
+        # Launch context via SadCaptcha extension (preferred), else fall back
+        context = None
+        if USE_SADCAPTCHA_EXTENSION and (SADCAPTCHA_API_KEY and SADCAPTCHA_API_KEY.strip()):
+            try:
+                os.makedirs(USER_DATA_DIR_BASE, exist_ok=True)
+                user_data_dir = os.path.join(USER_DATA_DIR_BASE, username)
+                launch_args = ["--headless=chrome"] if BROWSER_HEADLESS else []
+                context = await make_async_playwright_solver_context(
+                    playwright,
+                    api_key=SADCAPTCHA_API_KEY,
+                    user_data_dir=user_data_dir,
+                    args=launch_args,
+                )
+                logging.info("SadCaptcha extension context created (persistent)")
+            except Exception as e:
+                logging.warning(f"Falling back to vanilla context: {e}")
+
+        if context is None:
+            browser = await playwright.chromium.launch(
+                headless=BROWSER_HEADLESS,
+                args=[
+                    "--ignore-certificate-errors",
+                    "--ignore-ssl-errors",
+                    "--ignore-certificate-errors-spki-list",
+                    "--disable-web-security",
+                    "--disable-features=VizDisplayCompositor",
+                    "--disable-extensions",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-accelerated-2d-canvas",
+                    "--no-first-run",
+                    "--no-zygote",
+                    "--disable-gpu",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-field-trial-config",
+                    "--disable-hang-monitor",
+                    "--disable-features=TranslateUI",
+                    "--disable-ipc-flooding-protection",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-default-apps",
+                    "--disable-component-extensions-with-background-pages",
+                    "--allow-running-insecure-content",
+                ],
+            )
+            context = await browser.new_context(
+                user_agent=user_agent,
+                ignore_https_errors=True,
+                bypass_csp=True,
+                viewport={"width": 1280, "height": 800},
+                extra_http_headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1",
+                },
+            )
+
         # Align default timeouts with config
         try:
             await context.set_default_navigation_timeout(PAGE_TIMEOUT)
             await context.set_default_timeout(PAGE_TIMEOUT)
         except Exception as _:
             pass
-        
+
         page = await context.new_page()
+        # Apply Playwright stealth with recommended defaults
+        try:
+            stealth_config = StealthConfig(navigator_languages=False, navigator_vendor=False, navigator_user_agent=False)
+            await stealth_async(page, stealth_config)
+        except Exception:
+            pass
+
+        async def refresh_if_error():
+            """Detect TikTok 'Something went wrong' and click Refresh if present.
+            - Searches main page and child frames
+            - Tries multiple button selectors
+            - Falls back to page.reload if click fails
+            """
+            try:
+                # 1) Detect the error text anywhere
+                selectors_text = [
+                    page.get_by_text(re.compile(r"something\s+went\s+wrong", re.I)).first,
+                    page.locator("text=/.*Something\\s+went\\s+wrong.*/i").first,
+                    page.locator("text=went wrong").first,
+                ]
+                err_visible = False
+                for loc in selectors_text:
+                    try:
+                        await loc.wait_for(state="visible", timeout=1500)
+                        err_visible = True
+                        break
+                    except Exception:
+                        continue
+                if not err_visible:
+                    # Search in iframes as well
+                    for frame in page.frames:
+                        try:
+                            loc = frame.get_by_text(re.compile(r"something\s+went\s+wrong", re.I)).first
+                            await loc.wait_for(state="visible", timeout=800)
+                            err_visible = True
+                            break
+                        except Exception:
+                            continue
+                if not err_visible:
+                    return False
+
+                logging.warning("Detected 'Something went wrong' – attempting Refresh")
+
+                # 2) Try to click a Refresh/Reload/Try again button by several strategies
+                name_regex = re.compile(r"(refresh|reload|try\s*again|retry)", re.I)
+                button_candidates = [
+                    page.get_by_role("button", name=name_regex).first,
+                    page.locator("button:has-text('Refresh')").first,
+                    page.locator("button:has-text('Reload')").first,
+                    page.locator("button:has-text('Try again')").first,
+                    page.locator("[role='button']:has-text('Refresh')").first,
+                    page.locator("[role='button']:has-text('Reload')").first,
+                    page.locator("[type='button']:has-text('Refresh')").first,
+                    page.locator("div[role='button']:has-text('Refresh')").first,
+                    page.locator("button.ebef5j00").first,
+                    page.locator("button.e1jj6n0n4").first,
+                    page.locator("button[class*='StyledButton']").first,
+                    page.locator("button[class*='ebef5j00']").first,
+                    page.locator("text=/^\\s*Refresh\\s*$/i").first,
+                    page.locator("text=/^\\s*Reload\\s*$/i").first,
+                    page.locator("text=/^\\s*Try again\\s*$/i").first,
+                ]
+                clicked = False
+                # Try each candidate; if normal click fails, attempt JS click
+                for btn in button_candidates:
+                    try:
+                        await btn.wait_for(state="visible", timeout=3000)
+                        try:
+                            await btn.scroll_into_view_if_needed(timeout=1500)
+                        except Exception:
+                            pass
+                        try:
+                            await btn.click(force=True)
+                        except Exception:
+                            try:
+                                handle = await btn.element_handle()
+                                if handle:
+                                    await page.evaluate("el => el.click()", handle)
+                                else:
+                                    raise
+                            except Exception:
+                                continue
+                        clicked = True
+                        break
+                    except Exception:
+                        continue
+
+                if not clicked:
+                    # Try frames for the button as well
+                    for frame in page.frames:
+                        try:
+                            frame_candidates = [
+                                frame.get_by_role("button", name=name_regex).first,
+                                frame.locator("button:has-text('Refresh')").first,
+                                frame.locator("[role='button']:has-text('Refresh')").first,
+                                frame.locator("button.ebef5j00").first,
+                                frame.locator("button.e1jj6n0n4").first,
+                                frame.locator("button[class*='StyledButton']").first,
+                            ]
+                            for btn in frame_candidates:
+                                try:
+                                    await btn.wait_for(state="visible", timeout=2000)
+                                    try:
+                                        await btn.scroll_into_view_if_needed(timeout=800)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        await btn.click(force=True)
+                                    except Exception:
+                                        handle = await btn.element_handle()
+                                        if handle:
+                                            await page.evaluate("el => el.click()", handle)
+                                        else:
+                                            raise
+                                    clicked = True
+                                    break
+                                except Exception:
+                                    continue
+                            if clicked:
+                                break
+                        except Exception:
+                            continue
+
+                if not clicked:
+                    logging.warning("Refresh button not found; reloading page instead")
+                    try:
+                        await page.reload(wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
+                    except Exception:
+                        await page.evaluate("location.reload()")
+                        await page.wait_for_load_state("domcontentloaded", timeout=PAGE_TIMEOUT)
+                else:
+                    await page.wait_for_load_state("domcontentloaded", timeout=PAGE_TIMEOUT)
+
+                await asyncio.sleep(3)
+                logging.info("Recovered from 'Something went wrong' via refresh/reload")
+                return True
+            except Exception as e:
+                logging.error(f"refresh_if_error unexpected: {e}")
+                return False
         
         # Set up response logging and data capture
         captured_data = {}
@@ -405,6 +512,12 @@ async def get_latest_videos(username: str, limit: int = 5) -> list:
             while True:
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
+                    # if error banner present, click Refresh (poll up to ~6s)
+                    for _ in range(30):
+                        hit = await refresh_if_error()
+                        if hit:
+                            break
+                        await asyncio.sleep(1)
                     break
                 except Exception as nav_err:
                     nav_attempts += 1
@@ -450,7 +563,14 @@ async def get_latest_videos(username: str, limit: int = 5) -> list:
             await page.evaluate("window.scrollTo(0, 2000)")
             await asyncio.sleep(2)
             await page.evaluate("window.scrollTo(0, 0)")
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)
+
+            # If the page error appeared mid-run, try refresh (poll up to ~30s)
+            for _ in range(30):
+                hit = await refresh_if_error()
+                if hit:
+                    break
+                await asyncio.sleep(1)
             
             # Check for captcha and solve if present
             captcha_solved = True

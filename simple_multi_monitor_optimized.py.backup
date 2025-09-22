@@ -19,21 +19,17 @@ Features:
 import asyncio
 import sqlite3
 import csv
-import json
 import os
 import sys
 import time
 import traceback
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import queue
 import gc
 import psutil
-import random
-from playwright.async_api import async_playwright
-from main import solve_captcha
 
 # Import our scraper and config
 from main import get_latest_videos
@@ -180,7 +176,6 @@ def save_video_data(username, videos):
     finally:
         conn.close()
 
-
 def get_previous_video_data(username, limit=5):
     """Get previous video data for comparison."""
     conn = sqlite3.connect(DATABASE_FILE, timeout=30.0)
@@ -211,125 +206,19 @@ def get_previous_video_data(username, limit=5):
     finally:
         conn.close()
 
-
-def get_previous_video_data_for_ids(username: str, video_ids: list[str]) -> dict[str, dict]:
-    """Get the latest previous row per video_id for a username.
-    Returns a mapping: video_id -> {views, likes, comments, shares, create_time}.
-    """
-    if not video_ids:
-        return {}
-    # Deduplicate and keep only valid ids
-    unique_ids = [vid for vid in {vid for vid in video_ids if vid}]
-    if not unique_ids:
-        return {}
-    placeholders = ','.join(['?'] * len(unique_ids))
-    params = [username] + unique_ids
-    query = f'''
-        SELECT video_id, views, likes, comments, shares, create_time, scraped_at
-        FROM video_data
-        WHERE username = ? AND video_id IN ({placeholders})
-        ORDER BY video_id ASC, scraped_at DESC
-    '''
-    conn = sqlite3.connect(DATABASE_FILE, timeout=30.0)
-    try:
-        cursor = conn.execute(query, params)
-        latest_per_id: dict[str, dict] = {}
-        for row in cursor.fetchall():
-            vid = row[0]
-            # Because ordered by scraped_at DESC within each video_id group, first occurrence wins
-            if vid in latest_per_id:
-                continue
-            latest_per_id[vid] = {
-                'video_id': row[0],
-                'views': row[1],
-                'likes': row[2],
-                'comments': row[3],
-                'shares': row[4],
-                'create_time': row[5],
-            }
-        return latest_per_id
-    except Exception as e:
-        logging.error(f"❌ Error getting previous data for ids @{username}: {e}")
-        return {}
-    finally:
-        conn.close()
-
 # =============================================================================
 # VIRAL DETECTION
 # =============================================================================
 
-
-def save_view_deltas(username, current_videos, previous_videos):
-    """Save view deltas to CSV and JSON files."""
-    try:
-        # Create lookup for previous videos
-        prev_lookup = {v['video_id']: v for v in previous_videos}
-        
-        # Ensure data directory exists
-        os.makedirs('data', exist_ok=True)
-        
-        # Prepare delta data
-        deltas = []
-        timestamp = datetime.now().isoformat()
-        
-        for current_video in current_videos:
-            video_id = current_video.get('video_id') or current_video.get('id')
-            if not video_id:
-                continue
-                
-            current_views = current_video.get('views', 0)
-            previous_video = prev_lookup.get(video_id)
-            previous_views = previous_video.get('views', 0) if previous_video else 0
-            delta = current_views - previous_views
-            
-            delta_data = {
-                'timestamp': timestamp,
-                'username': username,
-                'video_id': video_id,
-                'previous_views': previous_views,
-                'current_views': current_views,
-                'delta': delta
-            }
-            deltas.append(delta_data)
-            
-            # Write to JSON file (append)
-            try:
-                with open('data/view_deltas.jsonl', 'a') as f:
-                    json.dump(delta_data, f)
-                    f.write('\n')
-            except Exception as e:
-                logging.error(f"Error writing to JSON: {e}")
-            
-            # Write to CSV file (append)
-            try:
-                file_exists = os.path.exists('data/view_deltas.csv')
-                with open('data/view_deltas.csv', 'a', newline='') as f:
-                    writer = csv.writer(f)
-                    if not file_exists:
-                        writer.writerow(['timestamp', 'username', 'video_id', 'previous_views', 'current_views', 'delta'])
-                    writer.writerow([timestamp, username, video_id, previous_views, current_views, delta])
-            except Exception as e:
-                logging.error(f"Error writing to CSV: {e}")
-        
-        logging.info(f"📊 Saved {len(deltas)} view deltas for @{username}")
-        
-    except Exception as e:
-        logging.error(f"Error saving view deltas for {username}: {e}")
-
-
 def check_viral_videos(username, current_videos, previous_videos):
     """Check for viral videos by comparing current and previous data."""
-    
-    # Save view deltas to files
-    save_view_deltas(username, current_videos, previous_videos)
-    
     viral_videos = []
     
     # Create lookup for previous videos
     prev_lookup = {v['video_id']: v for v in previous_videos}
     
     for current_video in current_videos:
-        video_id = current_video.get('video_id') or current_video.get('id')
+        video_id = current_video.get('video_id')
         if not video_id:
             continue
             
@@ -338,23 +227,21 @@ def check_viral_videos(username, current_videos, previous_videos):
         
         if previous_video:
             previous_views = previous_video.get('views', 0)
-        else:
-            previous_views = 0
-        view_increase = current_views - previous_views
-        
-        if view_increase >= VIRAL_THRESHOLD:
-            viral_videos.append({
-                'video_id': video_id,
-                'description': current_video.get("desc", ""),
-                'current_views': current_views,
-                'previous_views': previous_views,
-                'view_increase': view_increase,
-                'likes': current_video.get('likes', 0),
-                'comments': current_video.get('comments', 0),
-                'shares': current_video.get('shares', 0),
-                'create_time': current_video.get("created", "")
-            })
-            logging.info(f"🔥 VIRAL DETECTED! @{username} video {video_id}: +{view_increase} views")
+            view_increase = current_views - previous_views
+            
+            if view_increase >= VIRAL_THRESHOLD:
+                viral_videos.append({
+                    'video_id': video_id,
+                    'description': current_video.get("desc", ""),
+                    'current_views': current_views,
+                    'previous_views': previous_views,
+                    'view_increase': view_increase,
+                    'likes': current_video.get('likes', 0),
+                    'comments': current_video.get('comments', 0),
+                    'shares': current_video.get('shares', 0),
+                    'create_time': current_video.get("created", "")
+                })
+                logging.info(f"🔥 VIRAL DETECTED! @{username} video {video_id}: +{view_increase} views")
     
     return viral_videos
 
@@ -491,21 +378,15 @@ async def scrape_account(username, scrape_count=0):
             logging.warning(f"⚠️  [THREAD-{thread_id}] No videos found for @{username}")
             return
         
-        # Get previous data for comparison (match per current video_id)
-        logging.info(f"📊 [THREAD-{thread_id}] Getting previous data for @{username} (by video ids)...")
-        current_ids = []
-        for cv in videos:
-            vid = cv.get('video_id') or cv.get('id')
-            if vid:
-                current_ids.append(str(vid))
-        prev_lookup = get_previous_video_data_for_ids(username, current_ids)
-        previous_videos = list(prev_lookup.values())
-        logging.info(f"�� [THREAD-{thread_id}] Got previous for {len(previous_videos)} of {len(current_ids)} current ids for @{username}")
-        
         # Save current data
         logging.info(f"💾 [THREAD-{thread_id}] Saving video data for @{username}...")
         save_video_data(username, videos)
         logging.info(f"💾 [THREAD-{thread_id}] Saved video data for @{username}")
+        
+        # Get previous data for comparison
+        logging.info(f"📊 [THREAD-{thread_id}] Getting previous data for @{username}...")
+        previous_videos = get_previous_video_data(username, limit=MAX_VIDEOS_TO_CHECK)
+        logging.info(f"📊 [THREAD-{thread_id}] Got {len(previous_videos) if previous_videos else 0} previous videos for @{username}")
         
         # Check for viral videos
         logging.info(f"🦠 [THREAD-{thread_id}] Checking viral videos for @{username}...")
@@ -556,173 +437,107 @@ async def run_monitoring_cycle():
         logging.info(f"🚀 [CYCLE] Starting monitoring cycle for {len(accounts)} accounts")
         logging.info(f"💾 [CYCLE] Memory usage: {browser_manager.get_memory_usage():.1f}MB")
         
-        # Queue-based multi-browser, multi-tab processing
-        acc_queue: asyncio.Queue[str] = asyncio.Queue()
-        for acc in accounts:
-            await acc_queue.put(acc)
-
-        async def page_worker(browser, worker_id: int):
-            # Create a fresh context/page for this worker and reuse
+        # Process accounts in smaller batches to manage memory
+        batch_size = MAX_CONCURRENT_SCRAPES
+        total_batches = (len(accounts) + batch_size - 1) // batch_size
+        
+        print(f"📦 [CYCLE] Configuration: batch_size={batch_size}, total_batches={total_batches}")
+        logging.info(f"📦 [CYCLE] Will process {total_batches} batches with batch_size={batch_size}")
+        
+        for batch_num in range(total_batches):
+            print(f"📦 [CYCLE] ===== STARTING BATCH {batch_num + 1}/{total_batches} =====")
+            
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(accounts))
+            batch_accounts = accounts[start_idx:end_idx]
+            
+            print(f"📦 [BATCH-{batch_num + 1}] Batch range: {start_idx}-{end_idx}")
+            print(f"📦 [BATCH-{batch_num + 1}] Processing batch {batch_num + 1}/{total_batches}: {len(batch_accounts)} accounts")
+            print(f"📦 [BATCH-{batch_num + 1}] Accounts: {', '.join(batch_accounts)}")
+            
+            logging.info(f"📦 [BATCH-{batch_num + 1}] Processing batch {batch_num + 1}/{total_batches}: {len(batch_accounts)} accounts")
+            logging.info(f"📦 [BATCH-{batch_num + 1}] Accounts: {', '.join(batch_accounts)}")
+            
+            # Clean up before batch
+            print(f"🗑️  [BATCH-{batch_num + 1}] Starting garbage collection...")
+            logging.info(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection before batch...")
+            browser_manager.force_garbage_collection()
+            memory_before_batch = browser_manager.get_memory_usage()
+            print(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection completed. Memory: {memory_before_batch:.1f}MB")
+            logging.info(f"🗑️  [BATCH-{batch_num + 1}] Garbage collection completed. Memory: {memory_before_batch:.1f}MB")
+            
+            # Create tasks for this batch
+            print(f"⚙️  [BATCH-{batch_num + 1}] Creating async tasks for {len(batch_accounts)} accounts...")
+            logging.info(f"⚙️  [BATCH-{batch_num + 1}] Creating async tasks...")
+            tasks = []
+            for i, username in enumerate(batch_accounts):
+                print(f"⚙️  [BATCH-{batch_num + 1}] Creating task {i+1}/{len(batch_accounts)} for @{username}")
+                logging.info(f"⚙️  [BATCH-{batch_num + 1}] Creating task {i+1}/{len(batch_accounts)} for @{username}")
+                task = asyncio.create_task(scrape_account(username, start_idx + i))
+                tasks.append(task)
+                print(f"⚙️  [BATCH-{batch_num + 1}] Created task for @{username}: {id(task)}")
+                logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created task for @{username}: {id(task)}")
+            
+            print(f"⚙️  [BATCH-{batch_num + 1}] Created {len(tasks)} tasks, starting execution...")
+            logging.info(f"⚙️  [BATCH-{batch_num + 1}] Created {len(tasks)} tasks, starting execution...")
+            
+            # Wait for batch to complete with per-task timeout
             try:
-                user_agent = random.choice(USER_AGENTS)
-                context = await browser.new_context(
-                    user_agent=user_agent,
-                    ignore_https_errors=True,
-                    bypass_csp=True,
-                    viewport={"width": 1280, "height": 800},
-                    extra_http_headers={
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                        "Accept-Language": "en-US,en;q=0.5",
-                        "Accept-Encoding": "gzip, deflate",
-                        "Connection": "keep-alive",
-                        "Upgrade-Insecure-Requests": "1",
-                    },
+                print(f"⏳ [BATCH-{batch_num + 1}] Starting asyncio.gather for {len(tasks)} tasks...")
+                logging.info(f"⏳ [BATCH-{batch_num + 1}] Starting asyncio.gather for {len(tasks)} tasks...")
+                batch_start_time = time.time()
+                
+                print(f"⏳ [BATCH-{batch_num + 1}] About to await asyncio.gather...")
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=max(30, PAGE_TIMEOUT / 1000)
                 )
-                try:
-                    await context.set_default_navigation_timeout(PAGE_TIMEOUT)
-                    await context.set_default_timeout(PAGE_TIMEOUT)
-                except Exception:
-                    pass
-                page = await context.new_page()
-
-                while not acc_queue.empty():
-                    try:
-                        username = await acc_queue.get()
-                    except Exception:
-                        break
-                    if not username:
-                        continue
-                    # Scrape using this page
-                    videos = await scrape_with_existing_page(page, username, MAX_VIDEOS_TO_CHECK)
-                    if videos:
-                        previous_videos = get_previous_video_data(username, limit=MAX_VIDEOS_TO_CHECK)
-                        save_video_data(username, videos)
-                        check_viral_videos(username, videos, previous_videos)
-                    # jitter
-                    await asyncio.sleep(random.randint(JITTER_SECONDS_MIN, JITTER_SECONDS_MAX))
-                    acc_queue.task_done()
-            finally:
-                try:
-                    await context.close()
-                except Exception:
-                    pass
-
-        async def browser_worker(browser_id: int):
-            # Launch a browser and spawn tab workers
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(
-                    headless=BROWSER_HEADLESS,
-                    args=[
-                        "--ignore-certificate-errors",
-                        "--ignore-ssl-errors",
-                        "--ignore-certificate-errors-spki-list",
-                        "--disable-web-security",
-                        "--disable-features=VizDisplayCompositor",
-                        "--disable-extensions",
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-accelerated-2d-canvas",
-                        "--no-first-run",
-                        "--no-zygote",
-                        "--disable-gpu",
-                        "--disable-background-timer-throttling",
-                        "--disable-backgrounding-occluded-windows",
-                        "--disable-renderer-backgrounding",
-                        "--disable-field-trial-config",
-                        "--disable-hang-monitor",
-                        "--disable-features=TranslateUI",
-                        "--disable-ipc-flooding-protection",
-                        "--disable-blink-features=AutomationControlled",
-                        "--disable-default-apps",
-                        "--disable-component-extensions-with-background-pages",
-                        "--allow-running-insecure-content",
-                    ],
-                )
-                try:
-                    workers = [asyncio.create_task(page_worker(browser, w)) for w in range(MAX_TABS_PER_BROWSER)]
-                    await asyncio.gather(*workers)
-                finally:
-                    try:
-                        await browser.close()
-                    except Exception:
-                        pass
-
-        # Helper: scraping logic using an existing page (based on main.get_latest_videos)
-        async def scrape_with_existing_page(page, username: str, limit: int = 5) -> list:
-            videos: list = []
-            captured_data = {}
-            first_response_captured = False
-
-            async def handle_response(response):
-                nonlocal first_response_captured
-                logging.info(f"Response: {response.status} {response.url}")
-                if (("/api/post/item_list/" in response.url or 
-                     "/api/user/detail/" in response.url or
-                     "/aweme/v1/web/aweme/post/" in response.url or
-                     "itemList" in response.url) and 
-                    response.status == 200 and not first_response_captured):
-                    try:
-                        text = await response.text()
-                        if text.strip():
-                            data = await response.json()
-                            if data.get('itemList'):
-                                captured_data['videos'] = data
-                                first_response_captured = True
-                                logging.info(f"Captured FIRST video data from API response: {response.url}")
-                    except Exception as e:
-                        logging.error(f"Error capturing API data from {response.url}: {e}")
-
-            page.on("response", handle_response)
-
-            url = f"https://www.tiktok.com/@{username}"
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
-            except Exception as nav_err:
-                logging.warning(f"page.goto error for @{username}: {nav_err}")
-                return []
-
-            # light scroll to trigger API
-            await page.evaluate("window.scrollTo(0, 1000)")
-            await asyncio.sleep(2)
-            await page.evaluate("window.scrollTo(0, 0)")
-            await asyncio.sleep(2)
-
-            # Solve captcha if present
-            try:
-                solved = await solve_captcha(page)
-                if not solved:
-                    logging.warning("Captcha not solved, continuing anyway")
+                print(f"✅ [BATCH-{batch_num + 1}] asyncio.gather returned!")
+                
+                batch_duration = time.time() - batch_start_time
+                print(f"✅ [BATCH-{batch_num + 1}] asyncio.gather completed in {batch_duration:.1f} seconds")
+                print(f"✅ [BATCH-{batch_num + 1}] Results: {len(results)} results received")
+                
+                logging.info(f"✅ [BATCH-{batch_num + 1}] asyncio.gather completed in {batch_duration:.1f} seconds")
+                logging.info(f"✅ [BATCH-{batch_num + 1}] Results: {len(results)} results received")
+                
+                # Log any exceptions
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        print(f"❌ [BATCH-{batch_num + 1}] Task {i+1} failed: {result}")
+                        logging.error(f"❌ [BATCH-{batch_num + 1}] Task {i+1} failed: {result}")
+                    else:
+                        print(f"✅ [BATCH-{batch_num + 1}] Task {i+1} completed successfully")
+                        logging.info(f"✅ [BATCH-{batch_num + 1}] Task {i+1} completed successfully")
+                        
+            except asyncio.TimeoutError:
+                print(f"❌ [BATCH-{batch_num + 1}] asyncio.gather timed out after {PAGE_TIMEOUT / 1000} seconds.")
+                logging.error(f"❌ [BATCH-{batch_num + 1}] asyncio.gather timed out after {PAGE_TIMEOUT / 1000} seconds.")
+                logging.error(f"❌ [BATCH-{batch_num + 1}] Exception details: {traceback.format_exc()}")
             except Exception as e:
-                logging.warning(f"solve_captcha error: {e}")
-
-            await asyncio.sleep(3)
-            json_data = captured_data.get('videos')
-            if json_data:
-                items = json_data.get('itemList', [])
-                for v in items[:limit]:
-                    raw_timestamp = v.get("createTime", 0)
-                    try:
-                        timestamp = int(raw_timestamp)
-                        created_date = datetime.fromtimestamp(timestamp, timezone.utc).isoformat() if timestamp > 0 else "unknown"
-                    except Exception:
-                        created_date = "unknown"
-                    videos.append({
-                        "video_id": v.get("id"),
-                        "description": v.get("desc", ""),
-                        "views": int(v.get("stats", {}).get("playCount", 0)),
-                        "likes": int(v.get("stats", {}).get("diggCount", 0)),
-                        "comments": int(v.get("stats", {}).get("commentCount", 0)),
-                        "shares": int(v.get("stats", {}).get("shareCount", 0)),
-                        "create_time": created_date,
-                    })
-            return videos
-
-        # Launch up to MAX_CONCURRENT_BROWSERS workers
-        num_browsers = min(MAX_CONCURRENT_BROWSERS, max(1, (len(accounts) + MAX_TABS_PER_BROWSER - 1) // MAX_TABS_PER_BROWSER))
-        browser_workers = [asyncio.create_task(browser_worker(i)) for i in range(num_browsers)]
-        await asyncio.gather(*browser_workers)
- 
+                print(f"❌ [BATCH-{batch_num + 1}] EXCEPTION in asyncio.gather: {e}")
+                logging.error(f"❌ [BATCH-{batch_num + 1}] Error in batch {batch_num + 1}: {e}")
+                logging.error(f"❌ [BATCH-{batch_num + 1}] Exception details: {traceback.format_exc()}")
+            
+            # Clean up between batches
+            print(f"🧹 [BATCH-{batch_num + 1}] Cleaning up after batch...")
+            logging.info(f"🧹 [BATCH-{batch_num + 1}] Cleaning up after batch...")
+            browser_manager.cleanup_idle_browsers()
+            memory_after_batch = browser_manager.get_memory_usage()
+            print(f"🧹 [BATCH-{batch_num + 1}] Cleanup completed. Memory: {memory_after_batch:.1f}MB")
+            logging.info(f"🧹 [BATCH-{batch_num + 1}] Cleanup completed. Memory: {memory_after_batch:.1f}MB")
+            
+            # Wait between batches (except for the last one)
+            if batch_num < total_batches - 1:
+                print(f"⏳ [BATCH-{batch_num + 1}] Waiting {BATCH_DELAY_SECONDS} seconds before next batch...")
+                logging.info(f"⏳ [BATCH-{batch_num + 1}] Waiting {BATCH_DELAY_SECONDS} seconds before next batch...")
+                await asyncio.sleep(BATCH_DELAY_SECONDS)
+                print(f"⏳ [BATCH-{batch_num + 1}] Wait completed, proceeding to next batch...")
+                logging.info(f"⏳ [BATCH-{batch_num + 1}] Wait completed, proceeding to next batch...")
+            else:
+                print(f"🏁 [BATCH-{batch_num + 1}] This was the final batch")
+                logging.info(f"🏁 [BATCH-{batch_num + 1}] This was the final batch")
+        
         # Final cleanup
         print("🧹 [CYCLE] Starting final cleanup...")
         logging.info("🧹 [CYCLE] Final cleanup starting...")
@@ -730,7 +545,7 @@ async def run_monitoring_cycle():
         final_memory = browser_manager.get_memory_usage()
         print(f"✅ [CYCLE] Monitoring cycle completed successfully! Final memory: {final_memory:.1f}MB")
         logging.info(f"✅ [CYCLE] Monitoring cycle completed. Final memory: {final_memory:.1f}MB")
- 
+        
     except Exception as e:
         print(f"❌ [CYCLE] CRITICAL ERROR in run_monitoring_cycle: {e}")
         print(f"❌ [CYCLE] Exception traceback: {traceback.format_exc()}")

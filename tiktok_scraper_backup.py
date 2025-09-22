@@ -41,11 +41,12 @@ import sys
 import traceback
 from datetime import datetime
 
-from playwright.async_api import async_playwright, PlaywrightTimeoutError
+from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 # Try to import SadCaptcha, but make it optional
 try:
-    from tiktok_captcha_solver import AsyncPlaywrightSolver
+    from sadcaptcha_client import AsyncPlaywrightSolver
     SADCAPTCHA_AVAILABLE = True
 except ImportError:
     SADCAPTCHA_AVAILABLE = False
