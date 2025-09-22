@@ -362,9 +362,9 @@ def check_viral_videos(username, current_videos, previous_videos):
         total_user_entries = cursor.fetchone()[0]
         conn.close()
         
-        # Only skip if user has less than 5 total entries (very new user)
-        if total_user_entries < 5:
-            logging.info(f"🆕 Skipping viral detection for new user @{username} (only {total_user_entries} entries)")
+        # Only skip if user has NO previous entries (brand new user)
+        if total_user_entries == 0:
+            logging.info(f"🆕 Skipping viral detection for brand new user @{username} (no previous entries)")
             return viral_videos
     except Exception as e:
         logging.error(f"Error checking user history: {e}")
