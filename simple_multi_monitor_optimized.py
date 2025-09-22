@@ -354,11 +354,21 @@ def check_viral_videos(username, current_videos, previous_videos):
     # Create lookup for previous videos
     prev_lookup = {v['video_id']: v for v in previous_videos}
     
-    # Don't trigger viral alerts for new users (avoid fake massive deltas)
-    is_new_user_viral_check = len(previous_videos) == 0
-    if is_new_user_viral_check:
-        logging.info(f"🆕 Skipping viral detection for new user @{username} (avoiding fake initial deltas)")
-        return viral_videos
+    # Skip viral detection only if this user has NO database history at all
+    # (This prevents fake massive deltas on very first monitoring of a user)
+    conn = sqlite3.connect(DATABASE_FILE, timeout=30.0)
+    try:
+        cursor = conn.execute('SELECT COUNT(*) FROM video_data WHERE username = ?', (username,))
+        total_user_entries = cursor.fetchone()[0]
+        conn.close()
+        
+        # Only skip if user has less than 5 total entries (very new user)
+        if total_user_entries < 5:
+            logging.info(f"🆕 Skipping viral detection for new user @{username} (only {total_user_entries} entries)")
+            return viral_videos
+    except Exception as e:
+        logging.error(f"Error checking user history: {e}")
+        conn.close()
     
     for current_video in current_videos:
         video_id = current_video.get('video_id') or current_video.get('id')
@@ -539,12 +549,7 @@ async def scrape_account(username, scrape_count=0):
         previous_videos = list(prev_lookup.values())
         logging.info(f"�� [THREAD-{thread_id}] Got previous for {len(previous_videos)} of {len(current_ids)} current ids for @{username}")
         
-        # Save current data
-        logging.info(f"💾 [THREAD-{thread_id}] Saving video data for @{username}...")
-        save_video_data(username, videos)
-        logging.info(f"💾 [THREAD-{thread_id}] Saved video data for @{username}")
-        
-        # Check for viral videos
+        # Check for viral videos FIRST (before saving new data to avoid race condition)
         logging.info(f"🦠 [THREAD-{thread_id}] Checking viral videos for @{username}...")
         viral_videos = check_viral_videos(username, videos, previous_videos)
         logging.info(f"🦠 [THREAD-{thread_id}] Found {len(viral_videos)} viral videos for @{username}")
@@ -553,6 +558,11 @@ async def scrape_account(username, scrape_count=0):
             logging.info(f"📱 [THREAD-{thread_id}] Sending viral alert for @{username}...")
             send_viral_alert(username, viral_videos)
             logging.info(f"📱 [THREAD-{thread_id}] Sent viral alert for @{username}")
+        
+        # Save current data AFTER viral detection
+        logging.info(f"💾 [THREAD-{thread_id}] Saving video data for @{username}...")
+        save_video_data(username, videos)
+        logging.info(f"💾 [THREAD-{thread_id}] Saved video data for @{username}")
         
         # Update monitoring stats
         logging.info(f"📈 [THREAD-{thread_id}] Updating stats for @{username}...")
@@ -633,8 +643,17 @@ async def run_monitoring_cycle():
                     videos = await scrape_with_existing_page(page, username, MAX_VIDEOS_TO_CHECK)
                     if videos:
                         previous_videos = get_previous_video_data(username, limit=MAX_VIDEOS_TO_CHECK)
+                        
+                        # Check for viral videos BEFORE saving new data (to avoid race condition)
+                        viral_videos = check_viral_videos(username, videos, previous_videos)
+                        if viral_videos:
+                            logging.info(f"🚨 Found {len(viral_videos)} viral videos for @{username} - sending alert!")
+                            send_viral_alert(username, viral_videos)
+                        else:
+                            logging.debug(f"No viral videos found for @{username}")
+                        
+                        # Save video data after viral detection
                         save_video_data(username, videos)
-                        check_viral_videos(username, videos, previous_videos)
                     # jitter
                     await asyncio.sleep(random.randint(JITTER_SECONDS_MIN, JITTER_SECONDS_MAX))
                     acc_queue.task_done()
